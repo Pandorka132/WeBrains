@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { connectDrive, createDriveProject, isDriveConnected, listDriveProjects, openDriveProject, openLocalProject } from './providers.ts'
+import { connectDrive, createDriveProject, deleteDriveProject, isDriveConnected, listDriveProjects, openDriveProject, openLocalProject } from './providers.ts'
 
 test('local project ids cannot escape the BrowserFS project root', async () => {
   await assert.rejects(openLocalProject('../../.webbrains-projects.json'), /Invalid local project id/)
@@ -114,9 +114,9 @@ test('Drive OAuth stores its token and expiry locally while project listing uses
     assert.equal(createdDirectory.name, 'components')
     const srcFolder = driveFolders.find((folder) => folder.name === 'src' && folder.parents?.includes(projectFolder?.id ?? ''))
     assert.ok(srcFolder, 'creating a nested directory should create its missing parent')
-    assert.ok(driveFolders.some((folder) => folder.name === 'components' && folder.parents?.includes(srcFolder.id)))
-    assert.ok(driveRequests.some((request) => request.url.includes('/upload/drive/v3/files') && request.body.includes('# Drive Test')))
-    assert.ok(driveRequests.some((request) => request.url.includes('/upload/drive/v3/files') && request.body.includes('def main()')))
+    const componentsFolder = driveFolders.find((folder) => folder.name === 'components' && folder.parents?.includes(srcFolder.id))
+    assert.ok(componentsFolder)
+    assert.equal(driveRequests.filter((request) => request.url.includes('/upload/drive/v3/files')).length, 0, 'creating an empty project must not upload starter files')
     const webBrainsFolder = driveFolders.find((folder) => folder.name === 'WebBrains')
     const projectsFolder = driveFolders.find((folder) => folder.name === 'projects' && folder.parents?.includes(webBrainsFolder?.id ?? ''))
     assert.ok(webBrainsFolder)
@@ -124,6 +124,10 @@ test('Drive OAuth stores its token and expiry locally while project listing uses
     assert.ok(projectFolder?.parents?.includes(projectsFolder.id))
     assert.ok(driveRequests.some((request) => request.url.includes('q=') && decodeURIComponent(request.url).includes("'root' in parents and name='WebBrains'")))
     assert.ok(driveRequests.some((request) => request.url.includes('q=') && decodeURIComponent(request.url).includes(`'${webBrainsFolder.id}' in parents and name='projects'`)))
+    await workspace.files.deleteEntry('/Drive Test/src/components')
+    assert.ok(driveRequests.some((request) => request.method === 'PATCH' && request.url.endsWith(`/files/${componentsFolder.id}`) && JSON.parse(request.body).trashed === true), 'deleting a Drive entry should move it to Drive trash')
+    await deleteDriveProject(workspace.id)
+    assert.ok(driveRequests.some((request) => request.method === 'PATCH' && request.url.endsWith(`/files/${workspace.id}`) && JSON.parse(request.body).trashed === true), 'deleting a Drive project should move its folder to Drive trash')
     driveFolders.push({ id: 'duplicate-project', name: 'Duplicate project', mimeType: 'application/vnd.google-apps.folder' })
     await assert.rejects(openDriveProject('duplicate-project'), /contains duplicate names \(main\.py\)/)
     const storedValues = storage.entries()

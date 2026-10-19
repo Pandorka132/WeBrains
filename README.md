@@ -13,7 +13,9 @@ WebBrains is a browser-first IDE experiment. The frontend is a static React appl
 - `frontend/src/utils/` — framework-independent utilities.
 - `frontend/src/platform/` — browser-side, TypeScript-only foundations for selected IntelliJ Platform concepts.
 - `docs/` — architecture and development notes.
-- `scripts/` — project maintenance and build scripts.
+- `scripts/` — project maintenance and build scripts, including the profile-driven JetBrains plugin build pipeline documented in [`experiments/plugin-build/README.md`](experiments/plugin-build/README.md).
+- `experiments/python-plugin/` — active Python Community Edition compatibility investigation; start with [`docs/python-ce-roadmap.md`](docs/python-ce-roadmap.md) for current verified status and next steps.
+- `experiments/plugin-build/` — profile-driven plugin archive inspection and browser build/test pipeline.
 
 ## Requirements
 
@@ -47,6 +49,10 @@ npm run build
 ```
 
 The static production output is written to `frontend/dist/`. No Node.js server is needed at runtime. The repository includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml` that runs lint and all test suites, builds with a repository-aware asset base, and deploys on pushes to `main`. In repository **Settings → Pages**, select **GitHub Actions** as the source. To enable Google Drive in the deployed build, add a repository variable named `VITE_GOOGLE_CLIENT_ID` and register the Pages origin in Google Cloud's Authorized JavaScript origins. The GitHub Pages build uses hash routes (for example, `/<repo>/#/ide?...`) so direct navigation works on static hosting without server rewrites. Features that require browser cross-origin isolation or special response headers must be checked against the capabilities of the chosen host.
+
+## Active Python CE experiment
+
+The current technical focus is the original Python Community Edition lexer, not the entire plugin. The original lexer has been compiled to WebAssembly GC with the locally patched GraalVM Web Image compiler and passed a Node smoke test (`LEXER_OK tokens=22`). Its generated JavaScript wrapper and Wasm module are still a probe artifact; they are not yet integrated as a browser-callable language service in the editor. The next steps, exact paths, reproducible commands, compiler findings, and guardrails are tracked in [`docs/python-ce-roadmap.md`](docs/python-ce-roadmap.md). The historical investigation log is [`experiments/python-plugin/README.md`](experiments/python-plugin/README.md).
 
 ## Plugin API compatibility
 

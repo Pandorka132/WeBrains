@@ -1,0 +1,40 @@
+{
+  "id": "python-ce-parser-wasmgc",
+  "pluginId": "PythonCore",
+  "description": "Experimental attempt to run the original Python CE ParserDefinition and PyParser with real IntelliJ mock-platform services in WebAssembly GC.",
+  "entrypoint": "experiment.ParserProbe",
+  "imageName": "python-ce-parser",
+  "browserApi": false,
+  "sourceFiles": [
+    "experiments/python-plugin/teavm-poc/src/main/java/experiment/ParserProbe.java"
+  ],
+  "pluginJarIncludes": [
+    "python-ce/lib/modules/*.jar",
+    "python-ce/lib/python-ce.jar"
+  ],
+  "platform": {
+    "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
+    "required": true,
+    "excludeJarNameContains": [
+      "ijent",
+      "netty",
+      "sqlite"
+    ]
+  },
+  "reflectionConfig": "experiments/python-plugin/artifacts/.tools/graalvm-webimage-varhandle-probe/reflection-config.json",
+  "imageOptions": [
+    "-H:+UnlockExperimentalVMOptions",
+    "-H:Backend=WASMGC",
+    "-H:WasmAsPath=experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as"
+  ],
+  "runtimeTest": {
+    "expectedOutput": "PARSER_OK errors=0"
+  },
+  "notes": [
+    "This is a JVM-verified parser probe and an experimental Wasm build profile, not a claim that PSI or Python CE runs in the browser.",
+    "The probe uses the original PythonParserDefinition, PyParser, PyElementTypesFacadeImpl, MockApplication, and real Python dialect token-set contributors.",
+    "It registers only the extension point currently required by lexer initialization. Further platform extension points or services may be required as initialization progresses.",
+    "Do not add handwritten syntax parsing or fake IntelliJ services to make this profile pass.",
+    "Keep the matching IntelliJ platform and Python CE artifacts at the same build version."
+  ]
+}

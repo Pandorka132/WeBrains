@@ -29,6 +29,7 @@ export interface VirtualFileSystem {
   find(path: string): VirtualFile | VirtualDirectory | undefined
   writeText(path: string, text: string): VirtualFile | Promise<VirtualFile>
   createDirectory(path: string): VirtualDirectory | Promise<VirtualDirectory>
+  deleteEntry(path: string): void | Promise<void>
 }
 
 /** A small in-memory VFS. Host file access must be granted separately by the browser. */
@@ -68,6 +69,16 @@ export class MemoryFileSystem {
   find(path: string): MemoryFile | MemoryDirectory | undefined {
     return this.root.find(path)
   }
+
+  deleteEntry(path: string): void {
+    const segments = normalizePath(relativePathFrom(path, this.root.path))
+    const name = segments.pop()
+    if (!name) throw new Error('The project root cannot be deleted from the project tree.')
+    const parentPath = segments.length ? `${this.root.path}/${segments.join('/')}` : this.root.path
+    const parent = this.find(parentPath)
+    if (!(parent instanceof MemoryDirectory)) throw new Error('The parent directory could not be found.')
+    if (!parent.remove(name)) throw new Error('The selected file or directory no longer exists.')
+  }
 }
 
 export class MemoryDirectory implements VirtualDirectory {
@@ -93,6 +104,10 @@ export class MemoryDirectory implements VirtualDirectory {
 
   child(name: string): MemoryFile | MemoryDirectory | undefined {
     return this.entries.get(name)
+  }
+
+  remove(name: string): boolean {
+    return this.entries.delete(name)
   }
 
   find(path: string): MemoryFile | MemoryDirectory | undefined {

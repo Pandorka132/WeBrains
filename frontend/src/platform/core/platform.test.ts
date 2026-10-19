@@ -3,15 +3,20 @@ import { test } from 'node:test'
 import { ActionSystem } from './actions.ts'
 import { DocumentModel } from './document.ts'
 import { EditorModel } from './editor.ts'
+import { EditorKeyHandlerRegistry } from './editorCommands.ts'
+import { resolveAutoClosingPair } from './editorTyping.ts'
 import { extensionPoint, ExtensionRegistry } from './extensions.ts'
 import { DisposableScope } from './lifecycle.ts'
 import { MessageBus, topic } from './messageBus.ts'
 import { LanguageRegistry } from './language.ts'
 import { PlatformModule, PlatformProject } from './project.ts'
-import { PluginCatalog } from './plugins.ts'
+import { ProjectTemplateRegistry } from './projectTemplates.ts'
+import { editorLanguageServices, pluginRuntime, projectTemplates } from '../plugin-system/builtinPlugins.ts'
+import { PluginRuntime } from '../plugin-system/runtime.ts'
+import { PluginCatalog } from '../plugin-system/plugins.ts'
 import { ServiceContainer, serviceKey } from './services.ts'
 import { isLikelyBinaryFileName, MemoryFileSystem, normalizeRelativePath } from './vfs.ts'
-import { createSampleProject } from '../workspace/sampleProject.ts'
+import { createSampleProject } from '../../workspace/sampleProject.ts'
 
 test('disposable scopes dispose once in reverse order and dispose late additions immediately', () => {
   const scope = new DisposableScope()
@@ -124,6 +129,137 @@ test('language registrations are immutable snapshots and can be disposed', () =>
   assert.equal(registry.find('typescript'), undefined)
 })
 
+test('plugin runtime activates dependencies first and disposes plugin contributions in reverse order', () => {
+  const runtime = new PluginRuntime()
+  const calls: string[] = []
+  runtime.register({ manifest: { id: 'example.main', name: 'Main', version: '1', dependsOn: ['example.dep'] }, activate(context) {
+    calls.push('main')
+    context.register(() => calls.push('main-dispose'))
+  } })
+  runtime.register({ manifest: { id: 'example.dep', name: 'Dependency', version: '1' }, activate(context) {
+    calls.push('dependency')
+    context.register(() => calls.push('dependency-dispose'))
+  } })
+  assert.deepEqual(runtime.activateAll(), ['example.dep', 'example.main'])
+  assert.deepEqual(calls, ['dependency', 'main'])
+  assert.throws(() => runtime.register({ manifest: { id: 'late', name: 'Late', version: '1' }, activate() {} }), /after activation/)
+  runtime.dispose()
+  assert.deepEqual(calls, ['dependency', 'main', 'main-dispose', 'dependency-dispose'])
+})
+
+test('plugin runtime rolls back contributions when activation fails', () => {
+  const runtime = new PluginRuntime()
+  const calls: string[] = []
+  runtime.register({ manifest: { id: 'example.first', name: 'First', version: '1' }, activate(context) {
+    context.register(() => calls.push('first-dispose'))
+  } })
+  runtime.register({ manifest: { id: 'example.broken', name: 'Broken', version: '1' }, activate(context) {
+    context.register(() => calls.push('broken-dispose'))
+    throw new Error('activation failed')
+  } })
+  assert.throws(() => runtime.activateAll(), /activation failed/)
+  assert.deepEqual(calls, ['broken-dispose', 'first-dispose'])
+  runtime.dispose()
+})
+
+test('bundled Python CE contribution registers project template, code style, and Enter handler', async () => {
+  assert.deepEqual(pluginRuntime.activePluginIds(), ['WebBrains', 'PythonCore'])
+  assert.equal(projectTemplates.find('python-ce.pure-python')?.pluginId, 'PythonCore')
+  assert.equal(projectTemplates.find('webbrains.empty-project')?.pluginId, 'WebBrains')
+  assert.equal(projectTemplates.find('webbrains.empty-project')?.files.length, 0)
+  assert.equal(editorLanguageServices.forFileName('main.py')?.tabSize, 4)
+  assert.deepEqual(editorLanguageServices.forFileName('main.py')?.autoClosingPairs?.map(({ open, close }) => `${open}${close}`), ['()', '[]', '{}', "''", '""'])
+  const completionService = editorLanguageServices.forFileName('main.py')?.complete
+  assert.ok(completionService)
+  const completions = await completionService({
+    source: 'greet = 1\ngre', caretOffset: 13, prefix: 'gre', signal: new AbortController().signal,
+    tokens: [
+      { type: 'Py:IDENTIFIER', start: 0, end: 5, text: 'greet' },
+      { type: 'Py:IDENTIFIER', start: 10, end: 13, text: 'gre' },
+      { type: 'Py:STRING', start: 14, end: 18, text: 'green' },
+    ],
+  })
+  assert.deepEqual(completions.map(({ label }) => label), ['greet'])
+  const edit = pluginRuntime.editorKeyHandlers.dispatch({
+    key: 'Enter', filePath: 'main.py', source: 'if True:', caretOffset: 8,
+    selection: { startOffset: 8, endOffset: 8 }, shiftKey: false, indentSize: 4,
+  })
+  assert.equal(edit.text, '\n    ')
+  assert.equal(edit.selectionStart, 13)
+})
+
+test('editor key handlers dispatch by priority, support fallback, and unregister with disposal', () => {
+  const registry = new EditorKeyHandlerRegistry()
+  const calls: string[] = []
+  registry.register({
+    id: 'low', keys: ['Enter'], priority: 1,
+    handle: () => { calls.push('low'); return undefined },
+  })
+  const high = registry.register({
+    id: 'high', keys: ['Enter'], priority: 10,
+    handle: (context) => {
+      calls.push('high')
+      return { range: context.selection, text: 'X', selectionStart: context.selection.startOffset + 1, selectionEnd: context.selection.startOffset + 1 }
+    },
+  })
+  const context = { key: 'Enter' as const, filePath: 'note.txt', source: 'abc', caretOffset: 1,
+    selection: { startOffset: 1, endOffset: 2 }, shiftKey: false, indentSize: 2 }
+  assert.deepEqual(registry.dispatch(context), {
+    range: { startOffset: 1, endOffset: 2 }, text: 'X', selectionStart: 2, selectionEnd: 2,
+  })
+  assert.deepEqual(calls, ['high'])
+  high.dispose()
+  const fallback = registry.dispatch({ ...context, selection: { startOffset: 1, endOffset: 1 } })
+  assert.equal(fallback.text, '\n')
+  assert.deepEqual(calls, ['high', 'low'])
+  assert.throws(() => registry.register({ id: 'bad', keys: [], handle: () => undefined }), /Invalid editor key handler/)
+  assert.throws(() => registry.dispatch({ ...context, caretOffset: 10 }), /Invalid caret offset/)
+})
+
+test('platform Tab commands indent selected lines and Shift+Tab unindents them', () => {
+  const registry = new EditorKeyHandlerRegistry()
+  const context = { key: 'Tab' as const, filePath: 'note.txt', source: 'first\nsecond', caretOffset: 2,
+    selection: { startOffset: 0, endOffset: 11 }, shiftKey: false, indentSize: 2 }
+  const indented = registry.dispatch(context)
+  assert.equal(`${context.source.slice(0, indented.range.startOffset)}${indented.text}${context.source.slice(indented.range.endOffset)}`, '  first\n  second')
+  const unindented = registry.dispatch({ ...context, source: '  first\n  second', selection: { startOffset: 0, endOffset: 15 }, shiftKey: true })
+  assert.equal(`${'  first\n  second'.slice(0, unindented.range.startOffset)}${unindented.text}${'  first\n  second'.slice(unindented.range.endOffset)}`, 'first\nsecond')
+  const singleLine = registry.dispatch({ ...context, source: '    value', caretOffset: 3,
+    selection: { startOffset: 3, endOffset: 3 }, shiftKey: true })
+  assert.equal(singleLine.text, '  value')
+  assert.equal(singleLine.selectionStart, 1)
+  assert.equal(singleLine.selectionEnd, 1)
+})
+
+
+test('platform auto-closing inserts language-contributed pairs, wraps selections, skips existing closers, and respects escapes', () => {
+  const pairs = [
+    { open: '(', close: ')', kind: 'brace' as const },
+    { open: '[', close: ']', kind: 'brace' as const },
+    { open: "'", close: "'", kind: 'quote' as const },
+  ]
+  assert.deepEqual(resolveAutoClosingPair('call', { startOffset: 4, endOffset: 4 }, '(', pairs), {
+    range: { startOffset: 4, endOffset: 4 }, text: '()', selectionStart: 5, selectionEnd: 5,
+  })
+  assert.deepEqual(resolveAutoClosingPair('word', { startOffset: 0, endOffset: 4 }, '(', pairs), {
+    range: { startOffset: 0, endOffset: 4 }, text: '(word)', selectionStart: 5, selectionEnd: 5,
+  })
+  assert.equal(resolveAutoClosingPair(')', { startOffset: 0, endOffset: 0 }, ')', pairs)?.skipExistingCloser, true)
+  assert.equal(resolveAutoClosingPair('\\', { startOffset: 1, endOffset: 1 }, "'", pairs), undefined)
+})
+
+test('project templates validate safe paths, preserve immutable snapshots, and unregister on disposal', () => {
+  const registry = new ProjectTemplateRegistry()
+  const files = [{ path: 'src/main.py', content: 'print("Hello World")' }]
+  const registration = registry.register({ id: 'python.pure', pluginId: 'PythonCore', name: 'Python', description: 'Pure Python', languageId: 'python', files })
+  files.push({ path: '../escape.py', content: 'bad' })
+  assert.deepEqual(registry.find('python.pure')?.files, [{ path: 'src/main.py', content: 'print("Hello World")' }])
+  assert.throws(() => registry.register({ id: 'unsafe', pluginId: 'test', name: 'Unsafe', description: 'Invalid path', files: [{ path: '../escape.py', content: 'bad' }] }), /path|relative|outside/i)
+  assert.throws(() => registry.register({ id: 'python.pure', pluginId: 'PythonCore', name: 'Duplicate', description: 'Duplicate', files: [] }), /already registered/)
+  registration.dispose()
+  assert.equal(registry.find('python.pure'), undefined)
+})
+
 test('service containers own disposable services and reject duplicate registrations', () => {
   assert.throws(() => serviceKey('   '), /Service key name must not be empty/)
   const key = serviceKey<{ dispose(): void }>('example')
@@ -211,6 +347,11 @@ test('memory VFS creates directories, reads files, and returns a snapshot of chi
   assert.equal(await fs.root.find('/workspace/src/main.ts')?.readText(), 'export {}')
   assert.equal(fs.find('src/main.ts'), file)
   assert.deepEqual(fs.root.children().map((child) => child.name), ['src'])
+  fs.deleteEntry('/workspace/src/main.ts')
+  assert.equal(fs.find('/workspace/src/main.ts'), undefined)
+  fs.deleteEntry('/workspace/src')
+  assert.deepEqual(fs.root.children(), [])
+  assert.throws(() => fs.deleteEntry('/workspace'), /project root cannot be deleted/)
 })
 
 test('binary assets are rejected while common source/text files remain editable', () => {

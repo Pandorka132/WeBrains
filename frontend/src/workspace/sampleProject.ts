@@ -1,4 +1,4 @@
-import { MemoryFileSystem } from '../platform/vfs.ts'
+import { MemoryFileSystem } from '../platform/core/vfs.ts'
 
 export interface SampleProject {
   readonly id: string

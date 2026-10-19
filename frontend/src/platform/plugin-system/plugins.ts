@@ -1,5 +1,5 @@
-import type { Disposable } from './lifecycle.ts'
-import { disposable } from './lifecycle.ts'
+import type { Disposable } from '../core/lifecycle.ts'
+import { disposable } from '../core/lifecycle.ts'
 
 /** Host-authored metadata for statically bundled browser plugins.
  * This is not an IntelliJ plugin.xml parser or a binary plugin loader.

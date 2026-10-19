@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port 5171 --strictPort",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "verify:platform": "node --experimental-strip-types --test src/platform/*.test.ts",
+    "verify:platform": "node --experimental-strip-types --test src/platform/core/platform.test.ts src/platform/web-runtime/providers.test.ts",
     "preview": "vite preview",
     "verify:styles": "node --experimental-strip-types --test src/styles.test.ts",
     "verify:routing": "node --experimental-strip-types --test src/utils/*.test.ts"

@@ -3,28 +3,33 @@ import {
   connectDrive,
   createDriveProject,
   createLocalProject,
+  deleteDriveProject,
+  deleteLocalProject,
   getConfiguredGoogleClientId,
   isDriveConnected,
   listDriveProjects,
   listLocalProjects,
   type ProjectSummary,
-  type ProjectTemplate,
-} from '../platform/providers.ts'
-import { appUrl } from '../utils/routing.ts'
+} from '../platform/web-runtime/providers.ts'
+import { appUrl, navigateApp } from '../utils/routing.ts'
+import { projectTemplates } from '../platform/plugin-system/builtinPlugins.ts'
 
 type Provider = 'local' | 'drive'
 
 function openProject(project: ProjectSummary) {
   const params = new URLSearchParams({ provider: project.provider, project: project.id })
-  window.location.assign(appUrl('/ide', `?${params}`))
+  navigateApp('/ide', `?${params}`)
 }
 
 export function LandingPage() {
   const [provider, setProvider] = useState<Provider>('local')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [projectName, setProjectName] = useState('')
-  const [projectTemplate, setProjectTemplate] = useState<ProjectTemplate>('python')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('webbrains.empty-project')
+  const [createMainPy, setCreateMainPy] = useState(true)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; project: ProjectSummary } | null>(null)
+  const [projectDeleteTarget, setProjectDeleteTarget] = useState<ProjectSummary | null>(null)
   const clientId = getConfiguredGoogleClientId()
   const [connected, setConnected] = useState(isDriveConnected())
   const [loading, setLoading] = useState(true)
@@ -62,12 +67,32 @@ export function LandingPage() {
     setBusy(true)
     setError('')
     try {
+      const template = projectTemplates.find(selectedTemplateId)
+      if (!template) throw new Error(`The selected project type is unavailable: ${selectedTemplateId}`)
+      const initialFiles = Object.fromEntries(template.files.map(({ path, content }) => [path, content]))
+      if (template.id === 'python-ce.pure-python' && createMainPy) {
+        initialFiles['main.py'] = 'print("Hello World")\n'
+      }
       const workspace = provider === 'local'
-        ? await createLocalProject(projectName, projectTemplate)
-        : await createDriveProject(projectName, projectTemplate)
+        ? await createLocalProject(projectName, initialFiles)
+        : await createDriveProject(projectName, initialFiles)
       openProject({ id: workspace.id, name: workspace.name, provider, updatedAt: Date.now() })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create project.')
+    } finally { setBusy(false) }
+  }
+
+  const deleteProject = async () => {
+    if (!projectDeleteTarget) return
+    setBusy(true)
+    setError('')
+    try {
+      if (projectDeleteTarget.provider === 'local') await deleteLocalProject(projectDeleteTarget.id)
+      else await deleteDriveProject(projectDeleteTarget.id)
+      setProjectDeleteTarget(null)
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not delete the project.')
     } finally { setBusy(false) }
   }
 
@@ -87,7 +112,7 @@ export function LandingPage() {
 
   return <main className="landing-page">
     <header className="landing-header">
-      <a href={appUrl('/')} className="brand"><span>WebBrains</span></a>
+      <a href={appUrl('/')} className="brand" onClick={(event) => { event.preventDefault(); navigateApp('/') }}><span>WebBrains</span></a>
       <span className="landing-header-note">Browser IDE <span className="landing-header-separator">/</span> Project chooser</span>
     </header>
     <section className="landing-content">
@@ -121,33 +146,55 @@ export function LandingPage() {
         : loading
           ? <div className="empty-projects"><span className="loading-dot" /><strong>Loading projects…</strong></div>
           : projects.length
-            ? <div className="project-list">{projects.map((project, index) => <button type="button" key={project.id} className="saved-project" onClick={() => openProject(project)}>
-              <span className={`project-icon saved-project-icon saved-project-${index % 3}`}>{project.provider === 'drive' ? '△' : '◈'}</span>
-              <span className="project-info"><strong>{project.name}</strong><small>{project.provider === 'drive' ? 'Google Drive' : 'Stored in this browser'}</small></span>
-              <span className="project-updated">{project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : 'Recently updated'}</span><span className="project-open">›</span>
-            </button>)}</div>
+            ? <div className="project-list">{projects.map((project, index) => <div key={project.id} className="saved-project-row" onContextMenu={(event) => { event.preventDefault(); setProjectContextMenu({ x: event.clientX, y: event.clientY, project }) }}>
+              <button type="button" className="saved-project" aria-label={`Open project ${project.name}`} onKeyDown={(event) => { if (event.key === 'Delete') { event.preventDefault(); setProjectDeleteTarget(project); setProjectContextMenu(null); setError('') } }} onClick={() => openProject(project)}>
+                <span className={`project-icon saved-project-icon saved-project-${index % 3}`}>{project.provider === 'drive' ? '△' : '◈'}</span>
+                <span className="project-info"><strong>{project.name}</strong><small>{project.provider === 'drive' ? 'Google Drive' : 'Stored in this browser'}</small></span>
+                <span className="project-updated">{project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : 'Recently updated'}</span><span className="project-open">›</span>
+              </button>
+              <button type="button" className="project-actions-button" aria-label={`Actions for ${project.name}`} title="Project actions" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setProjectContextMenu({ x: rect.right - 4, y: rect.bottom, project }) }}>⋮</button>
+            </div>)}</div>
             : <div className="empty-projects"><span>＋</span><strong>No projects yet</strong><small>Create a project to start working in WebBrains.</small></div>}
 
-      {error && !createDialogOpen && <div className="landing-error" role="alert">{error}</div>}
+      {projectContextMenu && <>
+        <button type="button" className="project-context-dismiss" aria-label="Close project menu" onClick={() => setProjectContextMenu(null)} />
+        <div className="project-context-menu" role="menu" style={{ left: projectContextMenu.x, top: projectContextMenu.y }}>
+          <button type="button" role="menuitem" onClick={() => { setProjectDeleteTarget(projectContextMenu.project); setProjectContextMenu(null); setError('') }}>Delete Project…</button>
+        </div>
+      </>}
+      {projectDeleteTarget && <div className="modal-backdrop project-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setProjectDeleteTarget(null) }}>
+        <section className="tree-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="project-delete-title" aria-describedby="project-delete-description">
+          <h2 id="project-delete-title">Delete Project</h2>
+          <p id="project-delete-description">Delete <strong>{projectDeleteTarget.name}</strong> and its project files? {projectDeleteTarget.provider === 'drive' ? 'The project folder will be moved to Google Drive trash.' : 'This permanently removes the project files from this browser.'}</p>
+          {error && <div className="landing-error" role="alert">{error}</div>}
+          <div className="tree-delete-actions"><button type="button" className="dialog-cancel" disabled={busy} onClick={() => setProjectDeleteTarget(null)}>Cancel</button><button type="button" className="tree-delete-confirm" disabled={busy} onClick={() => void deleteProject()}>{busy ? 'Deleting…' : 'Delete'}</button></div>
+        </section>
+      </div>}
+      {error && !createDialogOpen && !projectDeleteTarget && <div className="landing-error" role="alert">{error}</div>}
       <div className="landing-actions">
-        <button type="button" className="secondary-button create-project-button" disabled={provider === 'drive' && !connected} onClick={() => { setError(''); setProjectName('New project'); setProjectTemplate('python'); setCreateDialogOpen(true) }}><span>＋</span> Create project</button>
+        <button type="button" className="secondary-button create-project-button" disabled={provider === 'drive' && !connected} onClick={() => { setError(''); setProjectName('New project'); setSelectedTemplateId('webbrains.empty-project'); setCreateMainPy(true); setCreateDialogOpen(true) }}><span>＋</span> Create project</button>
         <button type="button" className="primary-button" disabled={!projects.length} onClick={() => projects[0] && openProject(projects[0])}>Open recent <span>→</span></button>
       </div>
       {createDialogOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setCreateDialogOpen(false) }}>
         <form className="create-project-dialog create-project-wizard" onSubmit={(event) => { event.preventDefault(); void createProject() }}>
-          <header className="wizard-header"><div className="dialog-kicker">NEW PROJECT</div><h2>Create a project</h2><p>Choose a project type and give your workspace a name.</p></header>
+          <header className="wizard-header"><div className="dialog-kicker">NEW PROJECT</div><h2>Create a project</h2><p>Select a project type, then configure its name and available options.</p></header>
           <div className="wizard-body">
-            <aside className="wizard-types" aria-label="Project type">
-              <div className="wizard-group-label">LANGUAGES</div>
-              <button type="button" className="wizard-type selected" aria-pressed="true" onClick={() => setProjectTemplate('python')}>
-                <span className="python-logo">Py</span><span><strong>Python</strong><small>Python application</small></span><span className="wizard-radio" />
-              </button>
-            </aside>
+            <nav className="wizard-types" aria-label="Project type">
+              <div className="wizard-group-label">PROJECT TYPES</div>
+              {projectTemplates.all().map((template) => <button key={template.id} type="button" className={`wizard-type${selectedTemplateId === template.id ? ' selected' : ''}`} aria-pressed={selectedTemplateId === template.id} onClick={() => setSelectedTemplateId(template.id)}>
+                <span className={template.languageId === 'python' ? 'python-logo' : 'project-icon'}>{template.languageId === 'python' ? 'Py' : '◈'}</span>
+                <span><strong>{template.name}</strong><small>{template.description}</small></span>
+                <span className="wizard-radio" />
+              </button>)}
+            </nav>
             <section className="wizard-settings">
               <label className="wizard-field"><span>Project name</span><input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} aria-label="Project name" placeholder="My project" /></label>
               <div className="wizard-field"><span>Location</span><div className="wizard-location"><span>{provider === 'local' ? '▣' : '△'}</span><span>{provider === 'local' ? 'This browser · IndexedDB' : 'Google Drive · WebBrains/projects'}</span><small>Managed</small></div></div>
-              <div className="wizard-field"><span>Project template</span><div className="template-card"><span className="python-logo">Py</span><span><strong>Python</strong><small>Minimal Python project with main.py and pyproject.toml</small></span><span className="wizard-check">✓</span></div></div>
-              <div className="wizard-note"><span>ⓘ</span><span>WebBrains currently creates the project files in your selected storage. Running Python code requires a Python runtime, which is not yet built into the browser IDE.</span></div>
+              {selectedTemplateId === 'python-ce.pure-python' && <>
+                <div className="template-card"><span className="python-logo">Py</span><span><strong>Python interpreter</strong><small>Not configured. This browser build does not access a local Python interpreter.</small></span></div>
+                <label className="wizard-sample-option"><input type="checkbox" checked={createMainPy} onChange={(event) => setCreateMainPy(event.target.checked)} /><span>Create a main.py welcome script</span></label>
+              </>}
+              <div className="wizard-note"><span>ⓘ</span><span>{selectedTemplateId === 'webbrains.empty-project' ? 'Creates an empty workspace without a configured language or SDK.' : 'The Python project type is contributed by the Python CE plugin. Interpreter creation and execution are not available yet.'}</span></div>
             </section>
           </div>
           {error && <div className="landing-error" role="alert">{error}</div>}

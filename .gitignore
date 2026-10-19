@@ -18,3 +18,11 @@ pnpm-debug.log*
 .idea/
 .vscode/
 .DS_Store
+
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+
+# Generated JetBrains plugin-to-browser build runs
+experiments/plugin-builds/
+frontend/public/plugins/

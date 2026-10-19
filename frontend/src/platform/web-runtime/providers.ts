@@ -1,8 +1,7 @@
-import { isLikelyBinaryFileName, normalizeRelativePath, relativePathFrom } from './vfs.ts'
-import type { VirtualDirectory, VirtualFile, VirtualFileSystem } from './vfs.ts'
+import { isLikelyBinaryFileName, normalizeRelativePath, relativePathFrom } from '../core/vfs.ts'
+import type { VirtualDirectory, VirtualFile, VirtualFileSystem } from '../core/vfs.ts'
 
 type ProviderKind = 'local' | 'drive'
-export type ProjectTemplate = 'python'
 export interface ProjectSummary { id: string; name: string; updatedAt: number; provider: ProviderKind }
 export interface ProjectWorkspace { id: string; name: string; provider: ProviderKind; files: VirtualFileSystem }
 
@@ -13,6 +12,8 @@ type BrowserFsApi = {
   writeFileSync(path: string, text: string, encoding?: string): void
   mkdirSync(path: string, options?: { recursive?: boolean }): void
   existsSync(path: string): boolean
+  unlinkSync(path: string): void
+  rmdirSync(path: string): void
 }
 declare global { interface Window { google?: GoogleGlobal } }
 
@@ -128,6 +129,11 @@ class BrowserFileSystem implements VirtualFileSystem {
     ensureBrowserDirectory(this.fs, target)
     return new BrowserDirectory(this.fs, target, parts.at(-1) ?? this.root.name)
   }
+  deleteEntry(path: string): void {
+    const parts = normalizeRelativePath(relativePathFrom(path, this.basePath))
+    if (!parts.length) throw new Error('The project root cannot be deleted from the project tree.')
+    removeBrowserPath(this.fs, `${this.basePath}/${parts.join('/')}`)
+  }
   writeText(path: string, text: string): VirtualFile {
     const relative = normalizeRelativePath(relativePathFrom(path, this.basePath)).join('/')
     if (!relative) throw new Error('File path must name a file')
@@ -146,7 +152,7 @@ export async function listLocalProjects(): Promise<ProjectSummary[]> {
   return (await readLocalMetadata(fs)).sort((a, b) => b.updatedAt - a.updatedAt).map((project) => ({ ...project, provider: 'local' }))
 }
 
-export async function createLocalProject(name: string, template: ProjectTemplate = 'python'): Promise<ProjectWorkspace> {
+export async function createLocalProject(name: string, initialFiles: Readonly<Record<string, string>> = {}): Promise<ProjectWorkspace> {
   const fs = await browserFs()
   const cleanName = name.trim()
   if (!cleanName) throw new Error('Enter a project name.')
@@ -158,10 +164,31 @@ export async function createLocalProject(name: string, template: ProjectTemplate
   ensureBrowserDirectory(fs, '/projects')
   ensureBrowserDirectory(fs, base)
   const files = new BrowserFileSystem(fs, base)
-  scaffoldProject(files, cleanName, template)
+  for (const [path, content] of Object.entries(initialFiles)) files.writeText(path, content)
   metadata.push({ id, name: cleanName, updatedAt: Date.now() })
   saveLocalMetadata(fs, metadata)
   return { id, name: cleanName, provider: 'local', files }
+}
+
+export async function deleteLocalProject(id: string): Promise<void> {
+  if (!isSafeLocalProjectId(id)) throw new Error('Invalid local project id.')
+  const fs = await browserFs()
+  const metadata = await readLocalMetadata(fs)
+  const project = metadata.find((entry) => entry.id === id)
+  if (!project) throw new Error('That local project could not be found.')
+  const basePath = `/projects/${id}`
+  if (fs.existsSync(basePath)) removeBrowserPath(fs, basePath)
+  saveLocalMetadata(fs, metadata.filter((entry) => entry.id !== id))
+}
+
+function removeBrowserPath(fs: BrowserFsApi, path: string): void {
+  if (!fs.existsSync(path)) return
+  if (fs.statSync(path).isDirectory()) {
+    for (const name of fs.readdirSync(path)) removeBrowserPath(fs, `${path}/${name}`)
+    fs.rmdirSync(path)
+  } else {
+    fs.unlinkSync(path)
+  }
 }
 
 export async function openLocalProject(id: string): Promise<ProjectWorkspace> {
@@ -333,54 +360,19 @@ export async function listDriveProjects(): Promise<ProjectSummary[]> {
   } while (pageToken)
   return projects.sort((a, b) => b.updatedAt - a.updatedAt)
 }
-export async function createDriveProject(name: string, template: ProjectTemplate = 'python'): Promise<ProjectWorkspace> {
+export async function deleteDriveProject(id: string): Promise<void> {
+  if (!id.trim()) throw new Error('A Google Drive project id is required.')
+  await driveRequest<void>(`/files/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) })
+}
+
+export async function createDriveProject(name: string, initialFiles: Readonly<Record<string, string>> = {}): Promise<ProjectWorkspace> {
   const cleanName = name.trim()
   if (!cleanName) throw new Error('Enter a project name.')
   const projectsFolder = await driveProjectsFolder()
   const folder = await driveRequest<DriveRecord>('/files?fields=id,name,mimeType,parents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: cleanName, mimeType: folderMime, parents: [projectsFolder.id], appProperties: { webbrainsProject: 'true' } }) })
   const workspace = await openDriveProject(folder.id)
-  for (const [path, text] of Object.entries(projectScaffold(cleanName, template))) await workspace.files.writeText(path, text)
+  for (const [path, content] of Object.entries(initialFiles)) await workspace.files.writeText(path, content)
   return workspace
-}
-
-function projectScaffold(name: string, template: ProjectTemplate): Record<string, string> {
-  const safeName = name.replace(/[\r\n]+/g, ' ').trim()
-  const pythonGreeting = JSON.stringify(`Hello from ${safeName}!`)
-  if (template === 'python') return {
-    'main.py': `# ${safeName} — application entry point.
-
-
-def main() -> None:
-    print(${pythonGreeting})
-
-
-if __name__ == "__main__":
-    main()
-`,
-    'README.md': `# ${safeName}
-
-A Python project created with WebBrains.
-
-## Run
-
-\`\`\`bash
-python main.py
-\`\`\`
-`,
-    'pyproject.toml': `[project]
-name = "${slug(safeName).replace(/-/g, '_')}"
-version = "0.1.0"
-description = "A Python project created with WebBrains"
-requires-python = ">=3.10"
-dependencies = []
-`,
-    '.gitignore': '__pycache__/\n*.py[cod]\n.venv/\nvenv/\n.env\n',
-  }
-  throw new Error(`Unsupported project template: ${template}`)
-}
-
-function scaffoldProject(files: VirtualFileSystem, name: string, template: ProjectTemplate): void {
-  for (const [path, text] of Object.entries(projectScaffold(name, template))) files.writeText(path, text)
 }
 
 type DriveEntry = { id: string; name: string; isDirectory: boolean; parent?: DriveDirectory }
@@ -473,6 +465,21 @@ class DriveFileSystem implements VirtualFileSystem {
       directory = entry as DriveDirectory
     }
     return directory
+  }
+  async deleteEntry(path: string): Promise<void> {
+    const parts = normalizeRelativePath(relativePathFrom(path, this.root.path))
+    const name = parts.pop()
+    if (!name) throw new Error('The project root cannot be deleted from the project tree.')
+    let parent = this.root
+    for (const segment of parts) {
+      const entry = parent.entries.get(segment)
+      if (!entry?.isDirectory) throw new Error('The parent directory could not be found.')
+      parent = entry as DriveDirectory
+    }
+    const entry = parent.entries.get(name)
+    if (!entry) throw new Error('The selected file or directory no longer exists.')
+    await driveRequest<void>(`/files/${encodeURIComponent(entry.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) })
+    parent.entries.delete(name)
   }
   async writeText(path: string, text: string): Promise<VirtualFile> {
     const parts = normalizeRelativePath(relativePathFrom(path, this.root.path))

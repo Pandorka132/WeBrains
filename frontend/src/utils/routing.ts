@@ -32,3 +32,10 @@ export function appUrl(path: string, search = '', base = import.meta.env.BASE_UR
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return base === '/' ? `${normalizedPath}${search}` : `${base}#${normalizedPath}${search}`
 }
+
+/** Navigate inside the existing React application without triggering a document load. */
+export function navigateApp(path: string, search = ''): void {
+  const target = appUrl(path, search)
+  window.history.pushState(null, '', target)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}

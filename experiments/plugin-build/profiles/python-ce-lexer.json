@@ -1,0 +1,38 @@
+{
+  "id": "python-ce-lexer-wasmgc",
+  "pluginId": "PythonCore",
+  "description": "Compile and runtime-test the original Python CE lexer as a narrowly scoped browser capability.",
+  "entrypoint": "experiment.LexerProbe",
+  "imageName": "python-ce-lexer",
+  "browserApi": true,
+  "sourceFiles": [
+    "experiments/python-plugin/teavm-poc/src/main/java/experiment/LexerProbe.java"
+  ],
+  "pluginJarIncludes": [
+    "python-ce/lib/modules/*.jar",
+    "python-ce/lib/python-ce.jar"
+  ],
+  "platform": {
+    "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
+    "required": true,
+    "excludeJarNameContains": [
+      "ijent",
+      "netty",
+      "sqlite"
+    ]
+  },
+  "reflectionConfig": "experiments/python-plugin/artifacts/.tools/graalvm-webimage-varhandle-probe/reflection-config.json",
+  "imageOptions": [
+    "-H:+UnlockExperimentalVMOptions",
+    "-H:Backend=WASMGC",
+    "-H:WasmAsPath=experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as"
+  ],
+  "runtimeTest": {
+    "expectedOutput": "LEXER_OK tokens=22"
+  },
+  "notes": [
+    "This profile proves lexer execution only; it does not compile or load the full Python CE plugin.",
+    "Do not remove platform exclusions without checking the corresponding GraalVM build-time initialization failures.",
+    "The reflection metadata is required by the tested GraalVM Web Image closed-world configuration."
+  ]
+}
