@@ -1,43 +1,43 @@
-# React + TypeScript + Vite
+# WebBrains frontend
 
-WebBrains is a browser-only IDE experiment, built as a static React + TypeScript + Vite application.
+WebBrains is a browser-only React + TypeScript + Vite IDE experiment. It runs as a static site; there is no Java backend or Node.js runtime requirement after deployment.
 
-## Routes and current UI
+## Main views
 
-- `/` displays the project picker and Google Drive connection state. OAuth and Drive access are not configured, so the connect control is disabled and clearly labeled.
-- `/ide` displays the IDEA-inspired browser workbench for the selected in-memory sample project, with menus, project tree, editable tabs, syntax-colored editor, action/file search, and Problems/Terminal/Run/Debug panels.
+- `/` — choose local or Google Drive storage, create projects, list saved projects, and open one.
+- `/ide` — the workbench with tool windows, a project tree, editable tabs, syntax-colored text editing, and file/action search.
 
-Files and edits remain in page memory. Use `Ctrl/Cmd+P` for files, `Ctrl/Cmd+Shift+A` for actions, `Ctrl/Cmd+N` for a new file, and `Alt+1` / `Alt+4` to toggle tool windows. The Terminal panel does not run shell commands, and run/debug controls do not launch local processes.
+When built for GitHub Pages, the Vite base is derived from `GITHUB_REPOSITORY` and internal routes use hashes so the app works under a repository subpath without server-side rewrites.
 
-Run `npm run dev` to start the development server. The verification commands are `npm run verify:platform`, `npm run lint`, and `npm run build`.
+## Development
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm ci
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Google Drive
+
+Set `VITE_GOOGLE_CLIENT_ID` at build time to enable Drive sign-in. The client ID is public configuration; never put a client secret in the frontend. Configure a Google Cloud OAuth client for the exact development/deployment origin, enable the Drive API, and use the `drive.file` scope. Drive access tokens are bearer credentials stored in `localStorage` until Google expires or revokes them.
+
+## Shortcuts and limitations
+
+- `Shift` twice or `Ctrl/Cmd+Shift+N` — file-name search (not full IntelliJ Search Everywhere).
+- `Ctrl/Cmd+Shift+A` — Find Action.
+- `Alt+Insert` — New File.
+- `Ctrl/Cmd+S` — save all open writable tabs.
+- `Alt+1` / `Alt+4` — Project / Run tool windows.
+
+The Terminal panel is informational and does not run shell commands. Run/debug controls do not execute local processes. Parameter info, text search, full PSI, inspections, refactoring, and arbitrary IntelliJ Java/Kotlin plugin loading are not implemented.
+
+## Verification and build
+
+```sh
+npm run lint
+npm run verify:platform
+npm run verify:styles
+npm run verify:routing
+npm run build
+```
+
+Production output is written to `dist/`. The repository-level `.github/workflows/deploy-pages.yml` builds and deploys to GitHub Pages on pushes to `main`; set **Settings → Pages → Source** to **GitHub Actions** and add the repository variable `VITE_GOOGLE_CLIENT_ID` if Drive access is needed.

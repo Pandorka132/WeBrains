@@ -32,10 +32,10 @@ npm run dev
 
 The browser app has two main routes:
 
-- `/` is the project landing page. It offers three selectable sample projects and a clearly disabled Google Drive connection control while OAuth and Drive access remain unconfigured.
-- `/ide` opens the browser-only WebBrains workbench with the selected in-memory sample project, IDEA-inspired menus and tool windows, editable tabs, project tree, syntax-colored text editor, file/action search, and local tool panels.
+- `/` lets users choose browser-local or Google Drive storage, create projects, list saved projects, and open a selected project.
+- `/ide` opens the WebBrains workbench for that project, with Darcula New UI styling, menus and tool windows, editable tabs, project tree, syntax-colored editor, and file/action search.
 
-The sample project is temporary browser memory. Editing and save actions do not write to Google Drive or the host filesystem. `Ctrl/Cmd+P` searches files, `Ctrl/Cmd+Shift+A` searches available actions, `Ctrl/Cmd+N` creates a file, and `Alt+1` / `Alt+4` toggle the project and bottom tool windows. The Terminal panel is informational and does not run shell commands; run/debug controls are interface placeholders until a browser preview/runtime is configured.
+Browser-local project files use BrowserFS `AsyncMirror` with IndexedDB as the persistent backend. Because AsyncMirror queues its IndexedDB writes asynchronously, the current `Saved` indicator does not yet confirm a committed IndexedDB transaction; see the persistence caveat in [the IntelliJ audit](docs/intellij-audit.md). Google Drive projects use Google Identity Services and the Drive API; WebBrains creates/reuses `WebBrains/` in the Drive root and stores projects under `WebBrains/projects/`. Project contents are read and written directly in Drive and are never persisted in browser storage. The landing page provides a **Sign in with Google** button; users do not type a client ID. Configure the application once with the `VITE_GOOGLE_CLIENT_ID` build/deployment environment variable. Create a Google Cloud project, enable the Google Drive API, configure the OAuth consent screen, create an OAuth client of type **Web application**, and add the exact development/deployment origins under **Authorized JavaScript origins**. The client ID is public configuration; no client secret belongs in the browser. WebBrains requests the `drive.file` scope. The stored access token is a bearer credential and remains available only until Google expires or revokes it; expired sessions require authorization again. `Shift` twice or `Ctrl/Cmd+Shift+N` opens file-name search, `Ctrl/Cmd+Shift+A` opens Find Action, `Alt+Insert` creates a file, `Ctrl/Cmd+S` saves all open writable tabs, and `Alt+1` / `Alt+4` toggles the Project / Run tool windows. `Ctrl/Cmd+P` parameter info and text search shortcuts are not implemented yet. The Terminal panel is informational and does not run shell commands; run/debug controls do not launch a process.
 
 ## Checks and production build
 
@@ -46,7 +46,7 @@ npm run lint
 npm run build
 ```
 
-The static production output is written to `frontend/dist/`. It can be deployed to static hosting such as GitHub Pages; no Node.js server is needed at runtime. Features that require browser cross-origin isolation or special response headers must be checked against the capabilities of the chosen host.
+The static production output is written to `frontend/dist/`. No Node.js server is needed at runtime. The repository includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml` that runs lint and all test suites, builds with a repository-aware asset base, and deploys on pushes to `main`. In repository **Settings → Pages**, select **GitHub Actions** as the source. To enable Google Drive in the deployed build, add a repository variable named `VITE_GOOGLE_CLIENT_ID` and register the Pages origin in Google Cloud's Authorized JavaScript origins. The GitHub Pages build uses hash routes (for example, `/<repo>/#/ide?...`) so direct navigation works on static hosting without server rewrites. Features that require browser cross-origin isolation or special response headers must be checked against the capabilities of the chosen host.
 
 ## Plugin API compatibility
 
@@ -54,4 +54,4 @@ WebBrains is building toward selective IntelliJ Platform API compatibility throu
 
 This does not run arbitrary IntelliJ Java/Kotlin plugin JARs and does not provide a JVM, Swing/AWT, native OS access, or unrestricted local filesystem/process APIs. Similar API shapes do not guarantee matching behavior. See [the compatibility strategy](docs/plugin-api-compatibility.md) for the subsystem support matrix, milestone order, and limitations.
 
-The platform foundation uses Node's built-in test runner. From `frontend/`, run `npm run verify:platform`, `npm run lint`, and `npm run build`.
+The platform and routing checks use Node's built-in test runner; stylesheet regressions are checked with PostCSS. From `frontend/`, run `npm run verify:platform`, `npm run verify:styles`, `npm run verify:routing`, `npm run lint`, and `npm run build`.

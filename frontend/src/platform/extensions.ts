@@ -8,7 +8,9 @@ export interface ExtensionPoint<T> {
 }
 
 export function extensionPoint<T>(name: string): ExtensionPoint<T> {
-  return { name, id: Symbol(name) }
+  const cleanName = name.trim()
+  if (!cleanName) throw new Error('Extension point name must not be empty')
+  return { name: cleanName, id: Symbol(cleanName) }
 }
 
 /** In-memory extension registration. It does not parse or execute IntelliJ descriptors. */
@@ -16,13 +18,14 @@ export class ExtensionRegistry {
   private readonly entries = new Map<symbol, Map<string, unknown>>()
 
   register<T>(point: ExtensionPoint<T>, id: string, extension: T): Disposable {
-    if (id.length === 0) throw new Error('Extension id must not be empty')
+    const cleanId = id.trim()
+    if (!cleanId || /\s/.test(cleanId)) throw new Error('Extension id must be a non-empty token')
     const values = this.entries.get(point.id) ?? new Map<string, unknown>()
-    if (values.has(id)) throw new Error(`Extension already registered: ${point.name}/${id}`)
-    values.set(id, extension)
+    if (values.has(cleanId)) throw new Error(`Extension already registered: ${point.name}/${cleanId}`)
+    values.set(cleanId, extension)
     this.entries.set(point.id, values)
     return disposable(() => {
-      values.delete(id)
+      if (values.get(cleanId) === extension) values.delete(cleanId)
       if (values.size === 0) this.entries.delete(point.id)
     })
   }

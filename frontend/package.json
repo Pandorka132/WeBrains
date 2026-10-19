@@ -4,13 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0 --port 5171 --strictPort",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "verify:platform": "node --experimental-strip-types --test src/platform/platform.test.ts",
-    "preview": "vite preview"
+    "verify:platform": "node --experimental-strip-types --test src/platform/*.test.ts",
+    "preview": "vite preview",
+    "verify:styles": "node --experimental-strip-types --test src/styles.test.ts",
+    "verify:routing": "node --experimental-strip-types --test src/utils/*.test.ts"
   },
   "dependencies": {
+    "browserfs": "^1.4.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -20,6 +23,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "postcss": "^8.5.30",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   }

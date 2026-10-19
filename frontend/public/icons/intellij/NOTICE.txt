@@ -1,0 +1,13 @@
+These SVG icons are copied from JetBrains intellij-community.
+Copyright JetBrains s.r.o. and contributors. Licensed under the Apache License, Version 2.0.
+Source: https://github.com/JetBrains/intellij-community/tree/master/platform/icons/src/expui/toolwindows
+The terminal icon is from https://github.com/JetBrains/intellij-community/tree/master/plugins/terminal/resources/icons/expui/toolwindow
+License: https://github.com/JetBrains/intellij-community/blob/master/LICENSE.txt
+The add action icon is from https://github.com/JetBrains/intellij-community/tree/master/platform/icons/src/expui/general/add.svg
+
+Project tree action and file icons are copied from JetBrains intellij-community, platform/icons/src (Apache License 2.0): general/search.svg, nodes/folder.svg, language/python.svg, expui/fileTypes/{javaScript,css,html,json,markdown,text}.svg, expui/actions/{addFile,addDirectory}.svg, expui/run/run.svg.
+The folder disclosure chevron is from JetBrains intellij-community, platform/icons/src/expui/general/chevronRight.svg (Apache License 2.0).
+TypeScript file icon: JetBrains intellij-community, platform/icons/src/expui/fileTypes/typeScript.svg (Apache License 2.0).
+The tool-window hide action is from JetBrains intellij-community, platform/icons/src/expui/general/hide.svg (Apache License 2.0).
+The Debug action icon is from JetBrains intellij-community, platform/icons/src/expui/run/debug.svg (Apache License 2.0).
+Project tree expand/collapse actions: expui/general/expandAll.svg and expui/general/collapseAll.svg from https://github.com/JetBrains/intellij-community/tree/master/platform/icons/src/expui/general (Apache License 2.0).

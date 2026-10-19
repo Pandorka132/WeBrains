@@ -9,13 +9,16 @@ export class PlatformModule implements Disposable {
   readonly name: string
 
   constructor(name: string) {
-    this.name = name
-    if (name.length === 0) throw new Error('Module name must not be empty')
+    const cleanName = name.trim()
+    if (!cleanName) throw new Error('Module name must not be empty')
+    this.name = cleanName
   }
 
   dispose(): void {
-    this.lifetime.dispose()
-    this.services.dispose()
+    const errors: unknown[] = []
+    try { this.lifetime.dispose() } catch (error) { errors.push(error) }
+    try { this.services.dispose() } catch (error) { errors.push(error) }
+    if (errors.length) throw new AggregateError(errors, `Errors while disposing module ${this.name}`)
   }
 }
 
@@ -28,13 +31,16 @@ export class PlatformProject implements Disposable {
   private disposed = false
 
   constructor(id: string, name: string) {
-    this.id = id
-    this.name = name
-    if (!id || !name) throw new Error('Project id and name are required')
+    const cleanId = id.trim()
+    const cleanName = name.trim()
+    if (!cleanId || !cleanName) throw new Error('Project id and name are required')
+    this.id = cleanId
+    this.name = cleanName
   }
 
   addModule(module: PlatformModule): void {
     this.assertActive()
+    if (module.lifetime.isDisposed) throw new Error(`Module is already disposed: ${module.name}`)
     if (this.modules.has(module.name)) throw new Error(`Module already exists: ${module.name}`)
     this.modules.set(module.name, module)
     this.lifetime.add(module)
@@ -56,9 +62,11 @@ export class PlatformProject implements Disposable {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.lifetime.dispose()
-    this.services.dispose()
+    const errors: unknown[] = []
+    try { this.lifetime.dispose() } catch (error) { errors.push(error) }
+    try { this.services.dispose() } catch (error) { errors.push(error) }
     this.modules.clear()
+    if (errors.length) throw new AggregateError(errors, `Errors while disposing project ${this.name}`)
   }
 
   private assertActive(): void {

@@ -14,8 +14,8 @@ const sampleProjects = {
 } as const
 
 export function createSampleProject(projectId: string = 'aurora-dashboard'): SampleProject {
-  const selected = sampleProjects[projectId as keyof typeof sampleProjects] ?? sampleProjects['aurora-dashboard']
-  const safeId = projectId in sampleProjects ? projectId : 'aurora-dashboard'
+  const safeId = Object.prototype.hasOwnProperty.call(sampleProjects, projectId) ? projectId as keyof typeof sampleProjects : 'aurora-dashboard'
+  const selected = sampleProjects[safeId]
   const files = new MemoryFileSystem(safeId)
   files.writeText('src/main.tsx', `import { createRoot } from 'react-dom/client'\nimport { App } from './App'\nimport './styles.css'\n\nconst root = document.getElementById('root')\n\nif (!root) {\n  throw new Error('Root element was not found')\n}\n\ncreateRoot(root).render(<App />)\n`)
   files.writeText('src/App.tsx', `import { useState } from 'react'\n\nexport function App() {\n  const [active, setActive] = useState('Overview')\n\n  return (\n    <main className="dashboard">\n      <header className="dashboard-header">\n        <h1>${selected.title}</h1>\n        <button onClick={() => setActive('Activity')}>\n          View activity\n        </button>\n      </header>\n      <section aria-label="Project summary">\n        <p className="eyebrow">YOUR PROJECT</p>\n        <h2>{active}</h2>\n        <p>Everything is moving in the right direction.</p>\n      </section>\n    </main>\n  )\n}\n`)

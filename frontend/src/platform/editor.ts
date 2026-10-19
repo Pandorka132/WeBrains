@@ -1,14 +1,21 @@
-import type { DocumentModel, TextRange } from './document.ts'
+import type { DocumentChange, DocumentModel, TextRange } from './document.ts'
+import type { Disposable } from './lifecycle.ts'
 
 export interface EditorSelection extends TextRange {}
 
-export class EditorModel {
+export class EditorModel implements Disposable {
   private caretOffsetValue = 0
   private selectionValue: EditorSelection | undefined
+  private readonly documentSubscription: Disposable
   readonly document: DocumentModel
 
   constructor(document: DocumentModel) {
     this.document = document
+    this.documentSubscription = document.onChange((change) => this.adjustOffsets(change))
+  }
+
+  dispose(): void {
+    this.documentSubscription.dispose()
   }
 
   get caretOffset(): number {
@@ -42,6 +49,26 @@ export class EditorModel {
   get selectedText(): string | undefined {
     const selection = this.selectionValue
     return selection ? this.document.text.slice(selection.startOffset, selection.endOffset) : undefined
+  }
+
+  private adjustOffsets(change: DocumentChange): void {
+    const { startOffset, endOffset } = change.range
+    const removedLength = endOffset - startOffset
+    const insertedLength = change.newText.length
+    const mapOffset = (offset: number): number => {
+      if (offset < startOffset) return offset
+      if (offset > endOffset) return offset + insertedLength - removedLength
+      return startOffset + insertedLength
+    }
+
+    this.caretOffsetValue = mapOffset(this.caretOffsetValue)
+    if (this.selectionValue) {
+      this.selectionValue = {
+        startOffset: mapOffset(this.selectionValue.startOffset),
+        endOffset: mapOffset(this.selectionValue.endOffset),
+      }
+      if (this.selectionValue.endOffset < this.selectionValue.startOffset) this.selectionValue = undefined
+    }
   }
 
   private assertOffset(offset: number): void {

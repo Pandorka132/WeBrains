@@ -4,7 +4,9 @@ import { DisposableScope } from './lifecycle.ts'
 export type ServiceKey<T> = symbol & { readonly __serviceType?: T }
 
 export function serviceKey<T>(name: string): ServiceKey<T> {
-  return Symbol(name) as ServiceKey<T>
+  const cleanName = name.trim()
+  if (!cleanName) throw new Error('Service key name must not be empty')
+  return Symbol(cleanName) as ServiceKey<T>
 }
 
 /** A small scoped singleton registry; service lifetime follows its container. */
@@ -21,9 +23,8 @@ export class ServiceContainer implements Disposable {
   }
 
   get<T>(key: ServiceKey<T>): T {
-    const service = this.services.get(key)
-    if (service === undefined) throw new Error(`Service not registered: ${key.description ?? 'unknown'}`)
-    return service as T
+    if (!this.services.has(key)) throw new Error(`Service not registered: ${key.description ?? 'unknown'}`)
+    return this.services.get(key) as T
   }
 
   find<T>(key: ServiceKey<T>): T | undefined {

@@ -24,12 +24,27 @@ export class PluginCatalog {
   private readonly manifests = new Map<string, BrowserPluginManifest>()
 
   register(manifest: BrowserPluginManifest): Disposable {
-    if (!manifest.id || !manifest.name || !manifest.version) {
-      throw new Error('Plugin id, name, and version are required')
+    const id = manifest.id.trim()
+    const name = manifest.name.trim()
+    const version = manifest.version.trim()
+    const dependsOn = manifest.dependsOn?.map((dependency) => dependency.trim())
+    const platformModules = manifest.platformModules?.map((moduleId) => moduleId.trim())
+    if (!id || /\s/.test(id) || !name || !version || dependsOn?.some((dependency) => !dependency) || platformModules?.some((moduleId) => !moduleId)) {
+      throw new Error('Plugin id, name, version, and dependency ids must be non-empty')
     }
-    if (this.manifests.has(manifest.id)) throw new Error(`Plugin already registered: ${manifest.id}`)
-    this.manifests.set(manifest.id, manifest)
-    return disposable(() => this.manifests.delete(manifest.id))
+    if (this.manifests.has(id)) throw new Error(`Plugin already registered: ${id}`)
+    const snapshot: BrowserPluginManifest = Object.freeze({
+      ...manifest,
+      id,
+      name,
+      version,
+      dependsOn: dependsOn ? Object.freeze([...new Set(dependsOn)]) : undefined,
+      platformModules: platformModules ? Object.freeze([...new Set(platformModules)]) : undefined,
+    })
+    this.manifests.set(snapshot.id, snapshot)
+    return disposable(() => {
+      if (this.manifests.get(snapshot.id) === snapshot) this.manifests.delete(snapshot.id)
+    })
   }
 
   find(id: string): BrowserPluginManifest | undefined {

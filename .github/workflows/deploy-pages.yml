@@ -1,0 +1,66 @@
+name: Build and deploy WebBrains
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Verify platform contracts
+        working-directory: frontend
+        run: npm run verify:platform
+      - name: Verify workbench styles
+        working-directory: frontend
+        run: npm run verify:styles
+      - name: Verify static-host routing
+        working-directory: frontend
+        run: npm run verify:routing
+      - name: Build for GitHub Pages
+        working-directory: frontend
+        env:
+          GITHUB_PAGES: 'true'
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+        run: npm run build
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy static site
+        id: deployment
+        uses: actions/deploy-pages@v4

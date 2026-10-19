@@ -16,13 +16,13 @@ export interface DocumentChange {
 /** Mutable text with synchronous change notifications and monotonically increasing versions. */
 export class DocumentModel implements Disposable {
   private value: string
-  private readonly listeners = new Set<(change: DocumentChange) => void>()
+  private readonly listeners = new Set<{ listener: (change: DocumentChange) => void }>()
   private readonly lifetime = new DisposableScope()
   private versionValue = 0
   private disposed = false
 
   constructor(text = '') {
-    this.value = text
+    this.value = normalizeLineSeparators(text)
   }
 
   get text(): string {
@@ -41,9 +41,12 @@ export class DocumentModel implements Disposable {
     this.assertActive()
     assertRange(range, this.value.length)
     const oldText = this.value.slice(range.startOffset, range.endOffset)
-    this.value = `${this.value.slice(0, range.startOffset)}${newText}${this.value.slice(range.endOffset)}`
-    const change: DocumentChange = { range, oldText, newText, version: ++this.versionValue }
-    for (const listener of [...this.listeners]) listener(change)
+    const normalizedText = normalizeLineSeparators(newText)
+    this.value = `${this.value.slice(0, range.startOffset)}${normalizedText}${this.value.slice(range.endOffset)}`
+    const change: DocumentChange = { range, oldText, newText: normalizedText, version: ++this.versionValue }
+    for (const subscription of [...this.listeners]) {
+      if (this.listeners.has(subscription)) subscription.listener(change)
+    }
     return change
   }
 
@@ -57,8 +60,9 @@ export class DocumentModel implements Disposable {
 
   onChange(listener: (change: DocumentChange) => void, parent?: DisposableScope): Disposable {
     this.assertActive()
-    this.listeners.add(listener)
-    const subscription = disposable(() => this.listeners.delete(listener))
+    const entry = { listener }
+    this.listeners.add(entry)
+    const subscription = disposable(() => this.listeners.delete(entry))
     this.lifetime.add(subscription)
     parent?.add(subscription)
     return subscription
@@ -74,6 +78,10 @@ export class DocumentModel implements Disposable {
   private assertActive(): void {
     if (this.disposed) throw new Error('Document is disposed')
   }
+}
+
+function normalizeLineSeparators(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
 }
 
 function assertRange(range: TextRange, length: number): void {
