@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
-import { editorKeyHandlers, editorLanguageServices } from '../platform/plugin-system/builtinPlugins.ts'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { editorCompletionContributors, editorKeyHandlers, editorLanguageServices, pluginRuntime } from '../platform/plugin-system/builtinPlugins.ts'
+import { collectEditorCompletionItems } from '../platform/core/editorServices.ts'
+import { collectInspectionDiagnostics } from '../platform/core/extensionApis.ts'
 import type { EditorCompletionItem, EditorDiagnostic } from '../platform/core/editorServices.ts'
 import { resolveAutoClosingPair } from '../platform/core/editorTyping.ts'
+import { resolveCompletionEdit } from '../platform/core/editorCompletion.ts'
 
 interface CodeEditorProps {
   filePath: string
   value: string
   onChange(value: string): void
   onCaretChange?(offset: number): void
+  onDiagnosticsChange?(diagnostics: readonly EditorDiagnostic[]): void
+  diagnosticNavigation?: { readonly offset: number; readonly requestId: number } | null
 }
 
 const tokenPattern = /(?:\/\/.*|\b(?:import|from|export|function|const|let|return|if|throw|new|class|async|await|default|interface|type)\b|\b(?:true|false|null|undefined)\b|\b\d+\b|(['"`])(?:\\.|(?!\1)[^\\])*?\1|=>)/g
@@ -90,27 +95,52 @@ function highlightPythonLine(line: string, lineStartOffset: number, tokens: read
 
 function highlightLine(line: string, isPython: boolean, pythonTokens?: readonly PythonLexerToken[], lineStartOffset = 0, diagnostics: readonly EditorDiagnostic[] = []) {
   if (isPython && pythonTokens) return highlightPythonLine(line, lineStartOffset, pythonTokens, diagnostics)
-  const result: React.ReactNode[] = []
-  let cursor = 0
   const pattern = isPython ? pythonTokenPattern : tokenPattern
-  for (const match of line.matchAll(pattern)) {
-    const index = match.index ?? 0
-    if (index > cursor) result.push(line.slice(cursor, index))
-    const token = match[0]
-    const kind = token.startsWith('//') || (isPython && token.startsWith('#')) ? 'comment' : /^['"`]/.test(token) ? 'string' : /^\d/.test(token) ? 'number' : token === '=>' ? 'operator' : /^(true|false|null|undefined|True|False|None)$/.test(token) ? 'literal' : 'keyword'
-    result.push(<span className={`tok-${kind}`} key={`${index}-${token}`}>{token}</span>)
-    cursor = index + token.length
+  const tokens = [...line.matchAll(pattern)].map((match) => {
+    const text = match[0]
+    const start = match.index ?? 0
+    const end = start + text.length
+    const kind = text.startsWith('//') || (isPython && text.startsWith('#')) ? 'comment' : /^['"`]/.test(text) ? 'string' : /^\d/.test(text) ? 'number' : text === '=>' ? 'operator' : /^(true|false|null|undefined|True|False|None)$/.test(text) ? 'literal' : 'keyword'
+    return { start, end, text, kind }
+  })
+  const lineEndOffset = lineStartOffset + line.length
+  const lineDiagnostics = diagnostics.filter((item) => item.startOffset < lineEndOffset && item.endOffset > lineStartOffset)
+  const boundaries = new Set<number>([0, line.length])
+  for (const token of tokens) {
+    boundaries.add(token.start)
+    boundaries.add(token.end)
   }
-  if (cursor < line.length) result.push(line.slice(cursor))
+  for (const diagnostic of lineDiagnostics) {
+    boundaries.add(Math.max(diagnostic.startOffset, lineStartOffset) - lineStartOffset)
+    boundaries.add(Math.min(diagnostic.endOffset, lineEndOffset) - lineStartOffset)
+  }
+  const positions = [...boundaries].sort((a, b) => a - b)
+  const result: React.ReactNode[] = []
+  for (let index = 0; index < positions.length - 1; index += 1) {
+    const start = positions[index]
+    const end = positions[index + 1]
+    if (end <= start) continue
+    const absoluteStart = lineStartOffset + start
+    const absoluteEnd = lineStartOffset + end
+    const text = line.slice(start, end)
+    const token = tokens.find((candidate) => candidate.start <= start && candidate.end >= end)
+    const diagnostic = lineDiagnostics.find((candidate) => candidate.startOffset < absoluteEnd && candidate.endOffset > absoluteStart)
+    const classes = [token ? `tok-${token.kind}` : '', diagnostic ? `diagnostic-${diagnostic.severity}` : ''].filter(Boolean)
+    result.push(classes.length
+      ? <span className={classes.join(' ')} key={`${start}-${end}`} title={diagnostic?.message}>{text}</span>
+      : text)
+  }
   return result.length ? result : ' '
 }
 
-export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEditorProps) {
+export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnosticsChange, diagnosticNavigation }: CodeEditorProps) {
   const textarea = useRef<HTMLTextAreaElement>(null)
   const nextRequestId = useRef(0)
   const latestRequestId = useRef(0)
+  const lastDiagnosticNavigationId = useRef(0)
   const [pythonLexResult, setPythonLexResult] = useState<PythonLexerResult | null>(null)
   const [languageDiagnostics, setLanguageDiagnostics] = useState<{ source: string; languageId: string; items: readonly EditorDiagnostic[] } | null>(null)
+  const [inspectionDiagnostics, setInspectionDiagnostics] = useState<{ source: string; languageId: string; items: readonly EditorDiagnostic[] } | null>(null)
   const [scroll, setScroll] = useState({ top: 0, left: 0 })
   const [caretLine, setCaretLine] = useState(0)
   const [caretOffset, setCaretOffset] = useState(0)
@@ -118,6 +148,7 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
   const [completionItems, setCompletionItems] = useState<readonly EditorCompletionItem[]>([])
   const [completionIndex, setCompletionIndex] = useState(0)
   const [completionPosition, setCompletionPosition] = useState({ left: 70, top: 30 })
+  const [hoveredDiagnostic, setHoveredDiagnostic] = useState<{ diagnostic: EditorDiagnostic; left: number; top: number } | null>(null)
   const lines = value.split('\n')
   const lineOffsets: number[] = []
   let currentOffset = 0
@@ -128,12 +159,13 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
   const isPython = filePath.endsWith('.py') || filePath.endsWith('.pyi')
   const editorLanguageService = editorLanguageServices.forFileName(filePath)
   const activePythonTokens = isPython && pythonLexResult?.source === value ? pythonLexResult.tokens : undefined
-  const activeLanguageDiagnostics = languageDiagnostics?.source === value && languageDiagnostics.languageId === editorLanguageService?.id ? languageDiagnostics.items : []
-  const lexicalDiagnostics: readonly EditorDiagnostic[] = (activePythonTokens ?? []).flatMap((token) => {
+  const activeLanguageDiagnostics = useMemo(() => languageDiagnostics?.source === value && languageDiagnostics.languageId === editorLanguageService?.id ? languageDiagnostics.items : [], [languageDiagnostics, value, editorLanguageService?.id])
+  const activeInspectionDiagnostics = useMemo(() => inspectionDiagnostics?.source === value && inspectionDiagnostics.languageId === editorLanguageService?.id ? inspectionDiagnostics.items : [], [inspectionDiagnostics, value, editorLanguageService?.id])
+  const lexicalDiagnostics: readonly EditorDiagnostic[] = useMemo(() => (activePythonTokens ?? []).flatMap((token) => {
     if (!/BAD_CHARACTER|INCONSISTENT_DEDENT/.test(token.type)) return []
     return [{ startOffset: token.start, endOffset: token.end, severity: 'error' as const, message: /INCONSISTENT_DEDENT/.test(token.type) ? 'Inconsistent indentation' : `Invalid Python token: ${token.text}`, source: 'Python CE lexer' }]
-  })
-  const activeDiagnostics = [...activeLanguageDiagnostics, ...lexicalDiagnostics]
+  }), [activePythonTokens])
+  const activeDiagnostics = useMemo(() => [...activeLanguageDiagnostics, ...activeInspectionDiagnostics, ...lexicalDiagnostics], [activeLanguageDiagnostics, activeInspectionDiagnostics, lexicalDiagnostics])
   const completionPrefix = value.slice(0, caretOffset).match(/[A-Za-z_]\w*$/)?.[0] ?? ''
 
   useEffect(() => {
@@ -175,11 +207,12 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
   }, [isPython, value])
 
   useEffect(() => {
-    if (!completionRequested || !editorLanguageService?.complete || !completionPrefix) return
+    if (!completionRequested || !editorLanguageService) return
     const prefix = completionPrefix
     const controller = new AbortController()
     const debounce = window.setTimeout(() => {
-      void editorLanguageService.complete!({ source: value, caretOffset, prefix, signal: controller.signal, tokens: activePythonTokens })
+      const context = { languageId: editorLanguageService.id, source: value, caretOffset, prefix, signal: controller.signal }
+      void collectEditorCompletionItems(editorCompletionContributors, context)
         .then((items) => {
           if (controller.signal.aborted) return
           setCompletionItems(items)
@@ -193,6 +226,32 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
     }, 60)
     return () => { window.clearTimeout(debounce); controller.abort() }
   }, [completionRequested, editorLanguageService, value, caretOffset, completionPrefix, activePythonTokens, scroll.left, scroll.top])
+
+  useEffect(() => {
+    onDiagnosticsChange?.(activeDiagnostics)
+    return () => onDiagnosticsChange?.([])
+  }, [activeDiagnostics, onDiagnosticsChange])
+
+  useEffect(() => {
+    if (!editorLanguageService) {
+      setInspectionDiagnostics(null)
+      return
+    }
+    const controller = new AbortController()
+    const debounce = window.setTimeout(() => {
+      void collectInspectionDiagnostics(pluginRuntime.inspections, {
+        languageId: editorLanguageService.id,
+        filePath,
+        source: value,
+        signal: controller.signal,
+      }).then((items) => {
+        if (!controller.signal.aborted) setInspectionDiagnostics({ source: value, languageId: editorLanguageService.id, items })
+      }).catch((error: unknown) => {
+        if (!controller.signal.aborted) console.error('Plugin inspections failed:', error)
+      })
+    }, 150)
+    return () => { window.clearTimeout(debounce); controller.abort() }
+  }, [editorLanguageService, filePath, value])
 
   useEffect(() => {
     if (!editorLanguageService?.diagnose) return
@@ -224,12 +283,55 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
     setCaretLine(element.value.slice(0, element.selectionStart).split('\n').length - 1)
     onCaretChange?.(element.selectionStart)
   }
-  const applyCompletion = (item: EditorCompletionItem) => {
-    const prefix = completionPrefix
-    const startOffset = caretOffset - prefix.length
-    const insertion = item.insertText ?? item.label
-    onChange(`${value.slice(0, startOffset)}${insertion}${value.slice(caretOffset)}`)
-    const nextCaret = startOffset + insertion.length
+  useEffect(() => {
+    if (!diagnosticNavigation || diagnosticNavigation.requestId === lastDiagnosticNavigationId.current) return
+    const element = textarea.current
+    if (!element) return
+    lastDiagnosticNavigationId.current = diagnosticNavigation.requestId
+    const offset = Math.max(0, Math.min(diagnosticNavigation.offset, value.length))
+    element.focus()
+    element.setSelectionRange(offset, offset)
+    const targetLine = value.slice(0, offset).split('\n').length - 1
+    element.scrollTop = Math.max(0, targetLine * 21 - element.clientHeight + 42)
+    setCaretOffset(offset)
+    setCaretLine(targetLine)
+    setScroll({ top: element.scrollTop, left: element.scrollLeft })
+    onCaretChange?.(offset)
+  }, [diagnosticNavigation, filePath, value, onCaretChange])
+
+  const updateDiagnosticHover = (event: React.MouseEvent<HTMLTextAreaElement>) => {
+    if (activeDiagnostics.length === 0) {
+      setHoveredDiagnostic(null)
+      return
+    }
+    const element = event.currentTarget
+    const bounds = element.getBoundingClientRect()
+    const line = Math.floor((event.clientY - bounds.top + element.scrollTop - 9) / 21)
+    if (line < 0 || line >= lineOffsets.length) {
+      setHoveredDiagnostic(null)
+      return
+    }
+    const column = Math.floor((event.clientX - bounds.left + element.scrollLeft - 70) / 7.83)
+    if (column < 0 || column >= lines[line].length) {
+      setHoveredDiagnostic(null)
+      return
+    }
+    const offset = lineOffsets[line] + column
+    const diagnostic = activeDiagnostics.find((item) => offset >= item.startOffset && offset < item.endOffset)
+    if (!diagnostic) {
+      setHoveredDiagnostic(null)
+      return
+    }
+    setHoveredDiagnostic({
+      diagnostic,
+      left: Math.max(8, Math.min(event.clientX - bounds.left + 12, bounds.width - 320)),
+      top: Math.max(8, Math.min(event.clientY - bounds.top + 18, bounds.height - 100)),
+    })
+  }
+  const applyCompletion = (item: EditorCompletionItem, acceptWithTab = false) => {
+    const edit = resolveCompletionEdit(value, caretOffset, completionPrefix, item, acceptWithTab)
+    onChange(`${value.slice(0, edit.range.startOffset)}${edit.text}${value.slice(edit.range.endOffset)}`)
+    const nextCaret = edit.selectionStart
     setCompletionRequested(false)
     setCompletionItems([])
     requestAnimationFrame(() => {
@@ -242,17 +344,25 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
   }
   return <div className="editor-canvas">
     <div className="current-line" aria-hidden="true" style={{ transform: `translateY(${caretLine * 21 - scroll.top}px)` }} />
-    <div className="editor-gutter" aria-hidden="true" style={{ transform: `translateY(-${scroll.top}px)` }}>{lines.map((_, i) => <div key={i} className={`line-number${caretLine === i ? ' current' : ''}`}>{i + 1}</div>)}</div>
+    <div className="editor-gutter" aria-hidden="true" style={{ transform: `translateY(-${scroll.top}px)` }}>{lines.map((line, i) => {
+      const lineStart = lineOffsets[i]
+      const lineEnd = lineStart + line.length + (i < lines.length - 1 ? 1 : 0)
+      const lineDiagnostics = activeDiagnostics.filter((diagnostic) => diagnostic.startOffset < lineEnd && diagnostic.endOffset > lineStart)
+      const severity = lineDiagnostics.some((diagnostic) => diagnostic.severity === 'error') ? 'error' : lineDiagnostics.some((diagnostic) => diagnostic.severity === 'warning') ? 'warning' : lineDiagnostics.length ? 'information' : ''
+      return <div key={i} className={`line-number${caretLine === i ? ' current' : ''}`}>{severity && <span className={`gutter-diagnostic gutter-diagnostic-${severity}`} title={lineDiagnostics[0].message}>●</span>}{i + 1}</div>
+    })}</div>
     <pre className="syntax-layer" aria-hidden="true" style={{ transform: `translate(${-scroll.left}px, -${scroll.top}px)` }}>{lines.map((line, i) => <div className="code-line" key={i}>{highlightLine(line, isPython, activePythonTokens, lineOffsets[i], activeDiagnostics)}</div>)}</pre>
-    {completionRequested && completionPrefix && completionItems.length > 0 && <div className="completion-popup" role="listbox" aria-label="Code completion" style={{ left: completionPosition.left, top: completionPosition.top }}>
-      {completionItems.map((item, index) => <button type="button" role="option" aria-selected={index === completionIndex} className={`completion-item${index === completionIndex ? ' selected' : ''}`} key={`${item.label}-${index}`} onMouseDown={(event) => event.preventDefault()} onClick={() => applyCompletion(item)}>
-        <span className={`completion-kind completion-kind-${item.kind ?? 'text'}`}>{item.kind === 'variable' ? 'v' : item.kind === 'function' ? 'ƒ' : item.kind === 'class' ? 'C' : '·'}</span><span className="completion-label">{item.label}</span>{item.detail && <span className="completion-detail">{item.detail}</span>}
+    {completionRequested && completionItems.length > 0 && <div className="completion-popup" role="listbox" aria-label="Code completion" style={{ left: completionPosition.left, top: completionPosition.top }}>
+      {completionItems.map((item, index) => <button type="button" role="option" aria-selected={index === completionIndex} className={`completion-item${index === completionIndex ? ' selected' : ''}`} key={`${item.label}-${index}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setCompletionIndex(index)} onClick={() => applyCompletion(item)}>
+        <span className="completion-label">{item.label}</span>
       </button>)}
     </div>}
-    <textarea ref={textarea} className="code-input" aria-label={`Code editor for ${filePath}`} spellCheck={false} autoCapitalize="off" autoCorrect="off" value={value} onChange={(event) => { onChange(event.target.value); updateCaret(event.currentTarget) }} onClick={(event) => { setCompletionRequested(false); updateCaret(event.currentTarget) }} onKeyUp={(event) => updateCaret(event.currentTarget)} onSelect={(event) => updateCaret(event.currentTarget)} onScroll={onScroll} onKeyDown={(event) => {
+    {hoveredDiagnostic && <div className={`diagnostic-tooltip diagnostic-tooltip-${hoveredDiagnostic.diagnostic.severity}`} role="tooltip" style={{ left: hoveredDiagnostic.left, top: hoveredDiagnostic.top }}><div className="diagnostic-tooltip-heading"><span className="diagnostic-tooltip-icon">{hoveredDiagnostic.diagnostic.severity === 'error' ? '×' : hoveredDiagnostic.diagnostic.severity === 'warning' ? '!' : 'i'}</span><strong>{hoveredDiagnostic.diagnostic.severity === 'error' ? 'Error' : hoveredDiagnostic.diagnostic.severity === 'warning' ? 'Warning' : 'Information'}</strong></div><div className="diagnostic-tooltip-message">{hoveredDiagnostic.diagnostic.message}</div>{hoveredDiagnostic.diagnostic.source && <div className="diagnostic-tooltip-source">{hoveredDiagnostic.diagnostic.source}</div>}</div>}
+    <textarea ref={textarea} className="code-input" aria-label={`Code editor for ${filePath}`} spellCheck={false} autoCapitalize="off" autoCorrect="off" value={value} onChange={(event) => { setCompletionItems([]); onChange(event.target.value); updateCaret(event.currentTarget) }} onClick={(event) => { setCompletionRequested(false); updateCaret(event.currentTarget) }} onKeyUp={(event) => updateCaret(event.currentTarget)} onSelect={(event) => updateCaret(event.currentTarget)} onScroll={onScroll} onMouseMove={updateDiagnosticHover} onMouseLeave={() => setHoveredDiagnostic(null)} onKeyDown={(event) => {
       const element = event.currentTarget
       if ((event.ctrlKey || event.metaKey) && event.code === 'Space') {
         event.preventDefault()
+        setCompletionItems([])
         setCompletionRequested(true)
         return
       }
@@ -268,7 +378,7 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
       }
       if (completionRequested && completionItems.length > 0 && (event.key === 'Enter' || event.key === 'Tab')) {
         event.preventDefault()
-        applyCompletion(completionItems[completionIndex])
+        applyCompletion(completionItems[completionIndex], event.key === 'Tab')
         return
       }
       if (event.key === 'Escape' && completionRequested) {
@@ -276,8 +386,8 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange }: CodeEdi
         setCompletionItems([])
         return
       }
-      if (event.key.length === 1 && /[A-Za-z_]/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) setCompletionRequested(true)
-      else if (event.key === 'Backspace' || event.key === 'Delete') setCompletionRequested(true)
+      if (event.key.length === 1 && /[A-Za-z_]/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) { setCompletionItems([]); setCompletionRequested(true) }
+      else if (event.key === 'Backspace' || event.key === 'Delete') { setCompletionItems([]); setCompletionRequested(true) }
       else if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) setCompletionRequested(false)
       if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && editorLanguageService?.autoClosingPairs) {
         const pairEdit = resolveAutoClosingPair(value, { startOffset: element.selectionStart, endOffset: element.selectionEnd }, event.key, editorLanguageService.autoClosingPairs)

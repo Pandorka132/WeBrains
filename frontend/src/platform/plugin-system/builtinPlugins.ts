@@ -1,9 +1,14 @@
 import { PluginRuntime } from './runtime.ts'
+import { diagnosePythonSyntax, disposePythonSyntaxDiagnostics } from './pythonDiagnostics.ts'
+import { PYTHON_EXECUTOR_ID, PyodidePythonExecutor, pythonRunConfigurationType } from '../core/pythonExecution.ts'
 /** The production SPA uses statically bundled plugin modules; no JAR loading is implied. */
 export const pluginRuntime = new PluginRuntime()
 export const projectTemplates = pluginRuntime.projectTemplates
 export const editorLanguageServices = pluginRuntime.editorLanguageServices
+export const editorCompletionContributors = pluginRuntime.editorCompletionContributors
 export const editorKeyHandlers = pluginRuntime.editorKeyHandlers
+export const runConfigurations = pluginRuntime.runConfigurations
+export const pythonExecutor = new PyodidePythonExecutor()
 
 pluginRuntime.register({
   manifest: { id: 'WebBrains', name: 'WebBrains Core', version: '0.1.0' },
@@ -21,6 +26,9 @@ pluginRuntime.register({
 pluginRuntime.register({
   manifest: { id: 'PythonCore', name: 'Python Community Edition', version: '263.7031.23' },
   activate(context) {
+    context.register(context.fileTypes.register({ id: 'python-ce.file-type', name: 'Python', extensions: ['py', 'pyi'], languageId: 'python' }))
+    context.register(context.runConfigurations.registerType(pythonRunConfigurationType))
+    context.register(context.runConfigurations.registerExecutor(PYTHON_EXECUTOR_ID, pythonExecutor))
     // Transitional adapter only: the original PythonEnterHandler needs IntelliJ's live
     // PSI/editor services and is not yet executable in the browser runtime.
     context.register(context.editorKeyHandlers.register({
@@ -42,20 +50,7 @@ pluginRuntime.register({
       id: 'python',
       fileExtensions: ['py', 'pyi'],
       tabSize: 4,
-      complete: async ({ prefix, tokens = [], signal }) => {
-        if (!prefix || signal.aborted) return []
-        // First browser-safe completion slice: identifiers emitted by the original Python CE lexer.
-        // This deliberately does not pretend to provide PSI/type/import-aware Python completion.
-        const identifiers = new Map<string, number>()
-        for (const token of tokens) {
-          if (signal.aborted) return []
-          if (!/IDENTIFIER|NAME/.test(token.type) || !/^[A-Za-z_]\w*$/.test(token.text) || !token.text.startsWith(prefix) || token.text === prefix) continue
-          identifiers.set(token.text, (identifiers.get(token.text) ?? 0) + 1)
-        }
-        return [...identifiers].map(([label, count]) => ({ label, detail: count > 1 ? `Current file · ${count} occurrences` : 'Current file', kind: 'variable' as const, priority: count }))
-          .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0) || left.label.localeCompare(right.label))
-          .slice(0, 30)
-      },
+      diagnose: diagnosePythonSyntax,
       // Verified against Python CE 263.7031.23: PyBraceMatcher contributes (), [], {},
       // and PythonQuoteHandler delegates quote tokens to BaseQuoteHandler.
       autoClosingPairs: [
@@ -70,7 +65,7 @@ pluginRuntime.register({
       id: 'python-ce.pure-python',
       pluginId: 'PythonCore',
       name: 'Python',
-      description: 'A pure Python project. Interpreter setup and execution are not configured in this browser build.',
+      description: 'A pure Python project. Run Python files in the browser with Pyodide.',
       languageId: 'python',
       icon: 'python',
       files: [],
@@ -82,5 +77,6 @@ pluginRuntime.activateAll()
 
 /** Disposes the built-in runtime for tests or host shutdown. */
 export function disposeBuiltinPluginContributions(): void {
+  disposePythonSyntaxDiagnostics()
   pluginRuntime.dispose()
 }

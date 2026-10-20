@@ -6,6 +6,7 @@ import postcss, { type AtRule, type Declaration, type Rule } from 'postcss'
 const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
 const tree = readFileSync(new URL('./components/ProjectTree.tsx', import.meta.url), 'utf8')
 const idePage = readFileSync(new URL('./pages/IdePage.tsx', import.meta.url), 'utf8')
+const runToolWindow = readFileSync(new URL('./components/RunToolWindow.tsx', import.meta.url), 'utf8')
 const folderIcon = readFileSync(new URL('../public/icons/intellij/folder.svg', import.meta.url), 'utf8')
 const runActionIcon = readFileSync(new URL('../public/icons/intellij/run-action.svg', import.meta.url), 'utf8')
 const debugActionIcon = readFileSync(new URL('../public/icons/intellij/debug-action.svg', import.meta.url), 'utf8')
@@ -25,8 +26,18 @@ test('workbench palette keeps surfaces darker than the background', () => {
   const root = rootRule(':root')
   assert.ok(root)
   const values = declarations(root)
-  assert.equal(values.get('--bg'), '#26282c')
-  assert.equal(values.get('--surface'), '#191a1c')
+  assert.equal(values.get('--bg'), 'var(--color-window)')
+  assert.equal(values.get('--surface'), 'var(--color-panel)')
+})
+
+test('completion lookup uses IntelliJ dark-theme selection color and four-pixel popup insets', () => {
+  const popup = rootRule('.completion-popup')
+  const item = rootRule('.completion-item.selected')
+  assert.ok(popup)
+  assert.ok(item)
+  assert.equal(declarations(popup).get('padding'), '4px')
+  assert.equal(declarations(popup).get('background'), 'var(--color-panel-inset)')
+  assert.equal(declarations(item).get('background'), '#113a5c')
 })
 
 test('bottom tool window keeps an inset, clipped, rounded surface', () => {
@@ -89,6 +100,28 @@ test('edge stripes do not paint over the bottom panel corners', () => {
   assert.equal(declarations(rootRule('.right-tool-stripe')!).get('right'), '0')
 })
 
+test('Problems tool window exposes severity totals, source location, and navigable diagnostics', () => {
+  assert.match(idePage, /className="problems-view"/)
+  assert.match(idePage, /className="problems-summary"/)
+  assert.match(idePage, /counts\.error/)
+  assert.match(idePage, /counts\.warning/)
+  assert.match(idePage, /counts\.information/)
+  assert.match(idePage, /Line \$\{location\.line\}, column \$\{location\.column\}/)
+  assert.match(idePage, /onDiagnosticSelect\?\.\(diagnostic\.startOffset\)/)
+  assert.match(idePage, /className=\{`problems-status/)
+  assert.match(idePage, /onClick=\{\(\) => showToolWindow\('Problems'\)\}/)
+  assert.match(css, /\.problems-summary/)
+  assert.match(css, /\.problems-status\.has-errors/)
+})
+
+test('editor gutter marks diagnostic lines by severity', () => {
+  const editor = readFileSync(new URL('./components/CodeEditor.tsx', import.meta.url), 'utf8')
+  assert.match(editor, /gutter-diagnostic-\$\{severity\}/)
+  assert.match(css, /\.gutter-diagnostic-error/)
+  assert.match(css, /\.gutter-diagnostic-warning/)
+  assert.match(css, /\.gutter-diagnostic-information/)
+})
+
 test('stylesheet avoids repeated selectors and declarations within the same cascade scope', () => {
   const selectorsByScope = new Map<object, Set<string>>()
   stylesheet.walkRules((rule) => {
@@ -128,13 +161,20 @@ test('folder and run action SVGs have transparent fills and debug retains the or
   assert.ok(!debugActionIcon.includes('fill="#208A3C"') && !debugActionIcon.includes('fill="#F2FCF3"'), 'debug icon should remain unfilled like the Run action')
 })
 
-test('run configuration selector is available while run and debug stay disabled without a configuration', () => {
-  assert.ok(idePage.includes("const selectedRunConfiguration: string | null = null"))
+test('run configuration selector is wired to registered plugin configuration types', () => {
+  assert.ok(idePage.includes("const selectedRunConfiguration = selectedConfiguration?.name ?? null"))
   assert.ok(idePage.includes('aria-haspopup="menu"'))
-  assert.ok(idePage.includes('No run configurations available'))
-  assert.ok(idePage.includes('No configuration types are available yet. Plugins can contribute run/debug configuration types.'))
-  assert.ok(idePage.includes('disabled={!selectedRunConfiguration}'))
-  assert.ok(idePage.includes("const toolWindows: ToolWindow[] = ['Project', 'Structure', 'Problems', 'Terminal']"))
+  assert.ok(idePage.includes('No configurations yet'))
+  assert.ok(idePage.includes('disabled={!selectedRunConfiguration || !configurationStoreIsReady}'))
+  assert.ok(idePage.includes("const toolWindows: ToolWindow[] = ['Project', 'Structure', 'Problems', 'Terminal', 'Run', 'Debug']"))
+  assert.ok(idePage.includes("Run: 'bottom', Debug: 'bottom'"))
+  assert.ok(idePage.includes("layoutVersion !== '5'"))
+  assert.ok(idePage.includes('run-config-menu-run') && idePage.includes('void runConfiguration(configuration)'), 'each configuration in the main Run widget can be launched directly')
+  assert.ok(css.includes('.run-config-menu-row'))
+  assert.ok(!runToolWindow.includes('Edit Configurations…'), 'configuration management belongs in the main Run widget, not the Run tool window')
+  assert.ok(!runToolWindow.includes('aria-label="Run configuration"'), 'the Run tool window must not duplicate the configuration selector')
+  assert.ok(idePage.includes('run-session-tabs') && runToolWindow.includes('run-console-toolbar'), 'session tabs belong in the Run tool-window header, with controls in the console')
+  assert.ok(runToolWindow.includes("status === 'starting'") && runToolWindow.includes("status === 'completed'"), 'empty console state must reflect execution status instead of always showing the idle hint')
   assert.ok(!idePage.includes("{ label: 'Run tool window'"))
   assert.ok(css.includes('.toolbar-icon:disabled'))
 })

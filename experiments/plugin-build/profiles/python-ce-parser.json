@@ -6,7 +6,7 @@
   "imageName": "python-ce-parser",
   "browserApi": false,
   "sourceFiles": [
-    "experiments/python-plugin/teavm-poc/src/main/java/experiment/ParserProbe.java"
+    "experiments/python-plugin/java-probes/experiment/ParserProbe.java"
   ],
   "pluginJarIncludes": [
     "python-ce/lib/modules/*.jar",
@@ -25,7 +25,8 @@
   "imageOptions": [
     "-H:+UnlockExperimentalVMOptions",
     "-H:Backend=WASMGC",
-    "-H:WasmAsPath=experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as"
+    "-H:WasmAsPath=experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as",
+    "-H:IncludeResourceBundles=localization//messages/PyParserBundle,messages.PyParserBundle"
   ],
   "runtimeTest": {
     "expectedOutput": "PARSER_OK errors=0"

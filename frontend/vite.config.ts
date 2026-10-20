@@ -8,6 +8,9 @@ const base = process.env.GITHUB_PAGES === 'true' && repositoryName ? `/${reposit
 export default defineConfig({
   base,
   plugins: [react()],
+  // The Pyodide runtime is loaded as an external ESM module from its pinned CDN URL.
+  // Keep module workers as ESM so the runtime import is not rewritten to an IIFE global.
+  worker: { format: 'es' },
   server: {
     allowedHosts: ['expertcachy.tail181ebb.ts.net'],
   },

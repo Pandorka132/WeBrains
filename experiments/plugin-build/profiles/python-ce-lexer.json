@@ -6,7 +6,7 @@
   "imageName": "python-ce-lexer",
   "browserApi": true,
   "sourceFiles": [
-    "experiments/python-plugin/teavm-poc/src/main/java/experiment/LexerProbe.java"
+    "experiments/python-plugin/java-probes/experiment/LexerProbe.java"
   ],
   "pluginJarIncludes": [
     "python-ce/lib/modules/*.jar",

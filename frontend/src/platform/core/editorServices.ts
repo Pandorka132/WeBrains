@@ -12,17 +12,55 @@ export interface EditorDiagnostic {
 export interface EditorCompletionItem {
   readonly label: string
   readonly insertText?: string
-  readonly detail?: string
-  readonly kind?: 'keyword' | 'variable' | 'function' | 'class' | 'module' | 'text'
-  readonly priority?: number
 }
 
 export interface EditorCompletionContext {
+  readonly languageId: string
   readonly source: string
   readonly caretOffset: number
   readonly prefix: string
   readonly signal: AbortSignal
-  readonly tokens?: readonly { readonly type: string; readonly start: number; readonly end: number; readonly text: string }[]
+}
+
+/** Browser-side analogue of IntelliJ's `com.intellij.completion.contributor` extension point. */
+export interface EditorCompletionContributor {
+  readonly id: string
+  readonly languageId: string
+  contribute(context: EditorCompletionContext): Promise<readonly EditorCompletionItem[]> | readonly EditorCompletionItem[]
+}
+
+export class EditorCompletionContributorRegistry {
+  private readonly contributors = new Map<string, EditorCompletionContributor>()
+
+  register(contributor: EditorCompletionContributor): Disposable {
+    const id = contributor.id.trim()
+    const languageId = contributor.languageId.trim()
+    if (!id || /\s/.test(id) || !languageId || /\s/.test(languageId)) {
+      throw new Error('Completion contributor id and language id must be non-empty identifiers')
+    }
+    if (this.contributors.has(id)) throw new Error(`Completion contributor already registered: ${id}`)
+    const snapshot = Object.freeze({ ...contributor, id, languageId })
+    this.contributors.set(id, snapshot)
+    return disposable(() => {
+      if (this.contributors.get(id) === snapshot) this.contributors.delete(id)
+    })
+  }
+
+  forLanguage(languageId: string): readonly EditorCompletionContributor[] {
+    return [...this.contributors.values()].filter((contributor) => contributor.languageId === languageId)
+  }
+}
+
+/** Collect lookup items exclusively from registered plugin contributors. */
+export async function collectEditorCompletionItems(
+  registry: EditorCompletionContributorRegistry,
+  context: EditorCompletionContext,
+): Promise<readonly EditorCompletionItem[]> {
+  if (context.signal.aborted) return []
+  const contributions = await Promise.all(
+    registry.forLanguage(context.languageId).map((contributor) => contributor.contribute(context)),
+  )
+  return context.signal.aborted ? [] : contributions.flat()
 }
 
 /** Language metadata and analysis contributed by a statically bundled plugin. */
@@ -33,7 +71,6 @@ export interface EditorLanguageService {
   /** Closing characters configured by the language's brace/quote handlers. */
   readonly autoClosingPairs?: readonly { readonly open: string; readonly close: string; readonly kind: 'brace' | 'quote' }[]
   diagnose?(source: string, signal: AbortSignal): Promise<readonly EditorDiagnostic[]>
-  complete?(context: EditorCompletionContext): Promise<readonly EditorCompletionItem[]>
 }
 
 export class EditorLanguageServiceRegistry {

@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CodeEditor } from '../components/CodeEditor'
+import { RunToolWindow } from '../components/RunToolWindow'
+import type { RunConsoleEntry } from '../components/RunToolWindow'
+import type { EditorDiagnostic } from '../platform/core/editorServices.ts'
 import { ProjectTree } from '../components/ProjectTree'
 import { DocumentModel } from '../platform/core/document.ts'
 import { EditorModel } from '../platform/core/editor.ts'
 import { isLikelyBinaryFileName, MemoryFileSystem } from '../platform/core/vfs.ts'
 import type { VirtualFile } from '../platform/core/vfs.ts'
+import { ExecutionManager, readRunConfigurations, writeRunConfigurations } from '../platform/core/execution.ts'
+import type { ExecutionEvent, ExecutionStatus, RunConfigurationRecord } from '../platform/core/execution.ts'
+import { pythonExecutor, runConfigurations } from '../platform/plugin-system/builtinPlugins.ts'
 import { openWorkspace, type ProjectWorkspace } from '../platform/web-runtime/providers.ts'
 import { createSampleProject } from '../workspace/sampleProject'
 import { appUrl, getAppLocation, navigateApp } from '../utils/routing.ts'
@@ -14,8 +20,8 @@ type ToolWindow = 'Project' | 'Structure' | 'Problems' | 'Terminal' | 'Run' | 'D
 type DockSide = 'left' | 'left-bottom' | 'right' | 'right-bottom' | 'bottom' | 'bottom-right'
 type DragPreview = { side: DockSide; beforeTool: ToolWindow | null }
 type Panel = ToolWindow
-const toolWindows: ToolWindow[] = ['Project', 'Structure', 'Problems', 'Terminal']
-const defaultToolSides: Record<ToolWindow, DockSide> = { Project: 'left', Structure: 'left-bottom', Problems: 'bottom', Terminal: 'bottom', Run: 'bottom-right', Debug: 'bottom-right' }
+const toolWindows: ToolWindow[] = ['Project', 'Structure', 'Problems', 'Terminal', 'Run', 'Debug']
+const defaultToolSides: Record<ToolWindow, DockSide> = { Project: 'left', Structure: 'left-bottom', Problems: 'bottom', Terminal: 'bottom', Run: 'bottom', Debug: 'bottom' }
 const toolIcon: Record<ToolWindow, string> = { Project: 'project', Structure: 'structure', Problems: 'problems', Terminal: 'terminal', Run: 'run', Debug: 'debug' }
 
 function projectInitials(name: string) {
@@ -36,13 +42,51 @@ function ToolIcon({ tool }: { tool: ToolWindow }) {
   return <img className="tool-window-icon" src={`${import.meta.env.BASE_URL}icons/intellij/${toolIcon[tool]}.svg`} alt="" aria-hidden="true" draggable={false} />
 }
 
-function ToolWindowContent({ tool }: { tool: ToolWindow }) {
+function ToolWindowContent({ tool, diagnostics = [], source = '', filePath = '', onDiagnosticSelect, runOutput = [], runStatus = 'idle', onStopRun, runProps }: { tool: ToolWindow; diagnostics?: readonly EditorDiagnostic[]; source?: string; filePath?: string; onDiagnosticSelect?(offset: number): void; runOutput?: readonly RunConsoleEntry[]; runStatus?: ExecutionStatus | 'idle'; onStopRun?(): void; runProps?: React.ComponentProps<typeof RunToolWindow> }) {
   if (tool === 'Structure') return <div className="dock-placeholder compact"><strong>Structure</strong><small>Structure navigation is not available for this file yet.</small></div>
-  if (tool === 'Problems') return <><span className="success-check">✓</span><span>No problems detected</span><span className="muted">in this sample project</span></>
+  if (tool === 'Problems') {
+    const counts = diagnostics.reduce((result, diagnostic) => ({ ...result, [diagnostic.severity]: result[diagnostic.severity] + 1 }), { error: 0, warning: 0, information: 0 })
+    const locationOf = (offset: number) => {
+      const before = source.slice(0, offset)
+      const line = before.split('\n')
+      return { line: line.length, column: line.at(-1)!.length + 1 }
+    }
+    return <div className="problems-view">
+      <div className="problems-summary" aria-label="Problem severity summary">
+        <span className="problems-scope">{filePath || 'Current file'}</span>
+        <span className="problems-summary-count problems-summary-error" title="Errors"><span aria-hidden="true">×</span>{counts.error}</span>
+        <span className="problems-summary-count problems-summary-warning" title="Warnings"><span aria-hidden="true">!</span>{counts.warning}</span>
+        <span className="problems-summary-count problems-summary-information" title="Weak warnings"><span aria-hidden="true">·</span>{counts.information}</span>
+      </div>
+      {diagnostics.length === 0
+        ? <div className="problems-empty"><span className="success-check">✓</span><span>No problems detected</span><span className="muted">{filePath || 'in the current file'}</span></div>
+        : <div className="problems-list" role="list" aria-label="Current file problems">{diagnostics.map((diagnostic, index) => {
+          const location = locationOf(diagnostic.startOffset)
+          return <button type="button" className={`problem-item problem-${diagnostic.severity}`} role="listitem" key={`${diagnostic.startOffset}:${diagnostic.endOffset}:${index}`} onClick={() => onDiagnosticSelect?.(diagnostic.startOffset)} title={diagnostic.source ? `${diagnostic.message} — ${diagnostic.source}` : diagnostic.message}>
+            <span className="problem-severity-icon" aria-label={diagnostic.severity}>{diagnostic.severity === 'error' ? '×' : diagnostic.severity === 'warning' ? '!' : '·'}</span>
+            <span className="problem-message"><span>{diagnostic.message}</span>{diagnostic.source && <small>{diagnostic.source}</small>}</span>
+            <span className="problem-location" aria-label={`Line ${location.line}, column ${location.column}`}>{location.line}:{location.column}</span>
+          </button>
+        })}</div>}
+    </div>
+  }
   if (tool === 'Terminal') return <div className="terminal-content"><span className="terminal-prompt">webbrains@browser</span><span>:</span><span className="terminal-path">~/aurora-dashboard</span><span>$</span><span className="muted">This is a local preview panel. OS shell access is not available in the browser.</span></div>
-  if (tool === 'Run') return <span className="muted">Run configurations are a UI placeholder. Browser preview is not configured for this project.</span>
+  if (tool === 'Run' && runProps) return <RunToolWindow {...runProps} />
+  if (tool === 'Run') return <div className="run-console" aria-label="Run console"><div className="run-console-toolbar"><span>Python · {runStatus}</span><button type="button" disabled={!['running', 'starting', 'waiting-input'].includes(runStatus)} onClick={onStopRun}>Stop</button></div><pre className="run-console-output" aria-live="polite">{runOutput.map((entry, index) => <span className={entry.stream === 'stderr' ? 'run-console-stderr' : ''} key={index}>{entry.text}</span>)}</pre></div>
   return <span className="muted">Browser debugging is not connected to a runtime.</span>
 }
+function readSelectedRunConfiguration(projectId: string): string | null {
+  try { return localStorage.getItem(`webrains.run-configuration:${projectId}`) } catch { return null }
+}
+
+function storeSelectedRunConfiguration(projectId: string, configurationId: string): void {
+  try {
+    const key = `webrains.run-configuration:${projectId}`
+    if (configurationId) localStorage.setItem(key, configurationId)
+    else localStorage.removeItem(key)
+  } catch { /* Selection is a convenience; project configuration persistence lives in the VFS. */ }
+}
+
 function readToolOrder(): ToolWindow[] {
   try {
     const saved = JSON.parse(localStorage.getItem('webrains.tool-window-order') ?? 'null') as unknown
@@ -60,15 +104,15 @@ function readToolSides(): Record<ToolWindow, DockSide> {
       .filter(([tool, side]) => toolWindows.includes(tool as ToolWindow) && validSides.includes(side as DockSide))
       .map(([tool, side]) => [tool, side])) as Partial<Record<ToolWindow, DockSide>>
     const migrated = { ...defaultToolSides, ...sanitized }
-    if (saved && layoutVersion !== '4') {
-      // In layout v3, these tools were incorrectly assigned to the lower side-panel groups.
+    if (saved && layoutVersion !== '5') {
+      // Older layouts placed Run and Debug in a separate bottom-right split, unlike IntelliJ's shared bottom tool-window stripe.
       if (migrated.Problems === 'left-bottom') migrated.Problems = 'bottom'
       if (migrated.Terminal === 'left-bottom') migrated.Terminal = 'bottom'
-      if (migrated.Run === 'right-bottom') migrated.Run = 'bottom-right'
-      if (migrated.Debug === 'right-bottom') migrated.Debug = 'bottom-right'
+      if (migrated.Run === 'right-bottom' || migrated.Run === 'bottom-right') migrated.Run = 'bottom'
+      if (migrated.Debug === 'right-bottom' || migrated.Debug === 'bottom-right') migrated.Debug = 'bottom'
     }
     const hasSplitSlots = Object.values(saved ?? {}).some((side) => side === 'left-bottom' || side === 'right-bottom')
-    if (saved && layoutVersion !== '4' && !hasSplitSlots) migrated.Structure = 'left-bottom'
+    if (saved && layoutVersion !== '5' && !hasSplitSlots) migrated.Structure = 'left-bottom'
     return migrated
   } catch { return defaultToolSides }
 }
@@ -99,7 +143,7 @@ export function IdePage() {
   const [rightBottomOpen, setRightBottomOpen] = useState(() => toolWindows.some((tool) => readToolSides()[tool] === 'right-bottom'))
   const [bottomOpen, setBottomOpen] = useState(() => toolWindows.some((tool) => readToolSides()[tool] === 'bottom'))
   const [activeBottomRightTool, setActiveBottomRightTool] = useState<ToolWindow>(() => toolWindows.find((tool) => readToolSides()[tool] === 'bottom-right') ?? 'Debug')
-  const [bottomRightOpen, setBottomRightOpen] = useState(() => toolWindows.some((tool) => readToolSides()[tool] === 'bottom-right'))
+  const [bottomRightOpen, setBottomRightOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(252)
   const [rightSidebarWidth, setRightSidebarWidth] = useState(260)
   const [bottomPanelHeight, setBottomPanelHeight] = useState(190)
@@ -112,6 +156,18 @@ export function IdePage() {
   const [menu, setMenu] = useState<string | null>(null)
   const [runConfigMenuOpen, setRunConfigMenuOpen] = useState(false)
   const [runConfigDialogOpen, setRunConfigDialogOpen] = useState(false)
+  const [runConfigurationsState, setRunConfigurationsState] = useState<RunConfigurationRecord[]>([])
+  const [selectedRunConfigurationId, setSelectedRunConfigurationId] = useState('')
+  const [runConfigurationDraft, setRunConfigurationDraft] = useState<RunConfigurationRecord | null>(null)
+  const [runConfigurationError, setRunConfigurationError] = useState('')
+  const [runOutput, setRunOutput] = useState<RunConsoleEntry[]>([])
+  const [runStatus, setRunStatus] = useState<ExecutionStatus | 'idle'>('idle')
+  const [runStatusMessage, setRunStatusMessage] = useState('')
+  const [runInputRequest, setRunInputRequest] = useState<Extract<ExecutionEvent, { type: 'input-request' }> | undefined>()
+  const [configurationStoreReady, setConfigurationStoreReady] = useState(false)
+  const [configurationStoreProjectId, setConfigurationStoreProjectId] = useState('')
+  const configurationStoreIsReady = configurationStoreReady && configurationStoreProjectId === project.id
+  const [executionManager] = useState(() => new ExecutionManager(runConfigurations))
   const [notice, setNotice] = useState('')
   const [saveStates, setSaveStates] = useState<Record<string, 'saved' | 'saving' | 'error'>>({})
   const openingPaths = useRef(new Set<string>())
@@ -125,7 +181,111 @@ export function IdePage() {
   const saveQueues = useRef(new Map<string, Promise<void>>())
   const [selection, setSelection] = useState({ key: '', index: 0 })
   const [caretStatus, setCaretStatus] = useState({ path: '', offset: 0 })
+  const [currentDiagnostics, setCurrentDiagnostics] = useState<readonly EditorDiagnostic[]>([])
+  const [diagnosticNavigation, setDiagnosticNavigation] = useState<{ path: string; offset: number; requestId: number } | null>(null)
+  const handleEditorDiagnostics = useCallback((diagnostics: readonly EditorDiagnostic[]) => setCurrentDiagnostics(diagnostics), [])
   const lastShiftPress = useRef(0)
+
+  // Warm Python as soon as the project workspace is available. StrictMode replays share the same promise.
+  useEffect(() => { void pythonExecutor.preload().catch(() => undefined) }, [project.files, project.id])
+
+  useEffect(() => {
+    let cancelled = false
+    void readRunConfigurations(project.files).then((configurations) => {
+      if (cancelled) return
+      setRunConfigurationsState(configurations)
+      const storedSelection = readSelectedRunConfiguration(project.id)
+      setSelectedRunConfigurationId(configurations.some(({ id }) => id === storedSelection) ? storedSelection! : configurations[0]?.id ?? '')
+      setConfigurationStoreProjectId(project.id)
+      setConfigurationStoreReady(true)
+    })
+    return () => { cancelled = true }
+  }, [project.files, project.id])
+
+  // Stop a foreground run on unmount; permanent disposal here breaks React StrictMode's effect replay.
+  useEffect(() => () => { void executionManager.stop() }, [executionManager])
+
+  const persistRunConfigurations = (configurations: RunConfigurationRecord[]) => {
+    setRunConfigurationsState(configurations)
+    void writeRunConfigurations(project.files, configurations).catch((error: unknown) => {
+      setRunConfigurationError(error instanceof Error ? error.message : String(error))
+    })
+  }
+  const selectedConfiguration = runConfigurationsState.find(({ id }) => id === selectedRunConfigurationId)
+  const selectedConfigurationType = selectedConfiguration ? runConfigurations.type(selectedConfiguration.typeId) : undefined
+  const runConfiguration = async (configuration: RunConfigurationRecord | undefined = selectedConfiguration) => {
+    if (!configurationStoreIsReady || !configuration) return
+    const openFiles = tabsRef.current.filter((tab) => tab.file.write)
+    const saves = openFiles.map((tab) => {
+      const saveKey = `${project.id}:${tab.file.path}`
+      const timer = saveTimers.current.get(saveKey)
+      if (timer !== undefined) window.clearTimeout(timer)
+      saveTimers.current.delete(saveKey)
+      pendingSaves.current.delete(saveKey)
+      setSaveStates((current) => ({ ...current, [saveKey]: 'saving' }))
+      return queueFileSave(saveKey, tab.file, tab.document.text, provider === 'drive' ? 'Could not save before running.' : 'Could not save before running.')
+    })
+    try {
+      await Promise.all(saves)
+    } catch {
+      setNotice('Could not save open files. Fix the save error before running the project.')
+      return
+    }
+    setRunOutput([])
+    setRunInputRequest(undefined)
+    setRunStatus('starting')
+    setRunStatusMessage('Starting Python runtime…')
+    showToolWindow('Run')
+    void executionManager.run(configuration, project.files, project.name, import.meta.env.BASE_URL, (event: ExecutionEvent) => {
+      if (event.type === 'status') { setRunStatus(event.status); setRunStatusMessage(event.message ?? ''); if (event.status === 'completed' || event.status === 'failed' || event.status === 'stopped') setRunInputRequest(undefined) }
+      else if (event.type === 'stdout' || event.type === 'stderr') setRunOutput((current) => [...current, { stream: event.type, text: event.text }])
+      else if (event.type === 'error') setRunOutput((current) => [...current, { stream: 'stderr', text: `${event.message}\n` }])
+      else if (event.type === 'input-request') setRunInputRequest(event)
+      else if (event.type === 'finished') { setRunInputRequest(undefined); setRunOutput((current) => [...current, { stream: 'system', text: `Process finished with exit code ${event.exitCode}.\n` }]); if (event.exitCode !== 0) setRunStatus('failed') }
+    })
+  }
+  const runSelectedConfiguration = () => runConfiguration()
+  const runToolWindowProps: React.ComponentProps<typeof RunToolWindow> = {
+    configurationName: selectedConfiguration?.name ?? '',
+    configurationIcon: selectedConfigurationType?.icon,
+    hasConfiguration: configurationStoreIsReady && Boolean(selectedConfiguration),
+    status: configurationStoreIsReady ? runStatus : 'idle',
+    statusMessage: runStatusMessage,
+    entries: runOutput,
+    inputRequest: runInputRequest,
+    onRerun: runSelectedConfiguration,
+    onStop: () => { void executionManager.stop() },
+    onInput: (value) => {
+      if (runInputRequest) executionManager.provideInput(runInputRequest.requestId, value)
+      if (value !== null) setRunOutput((current) => [...current, { stream: 'stdin', text: `${value}\n` }])
+      setRunInputRequest(undefined)
+    },
+  }
+  const createRunConfiguration = (typeId: string) => {
+    const type = runConfigurations.type(typeId)
+    if (!type || !runConfigurations.canCreateConfiguration(typeId)) return
+    const activeFilePath = tabs.find((tab) => tab.file.path === activePath)?.file.path
+    const activeFile = activeFilePath?.startsWith(`${project.files.root.path}/`) ? activeFilePath.slice(project.files.root.path.length + 1) : activeFilePath
+    const draft = type.createDefault({ name: project.name, activeFile })
+    setRunConfigurationDraft(draft)
+    setRunConfigurationError('')
+  }
+  const saveRunConfiguration = () => {
+    if (!runConfigurationDraft) return
+    const type = runConfigurations.type(runConfigurationDraft.typeId)
+    if (!type) { setRunConfigurationError('This run configuration type is no longer available.'); return }
+    const next = { ...runConfigurationDraft, name: runConfigurationDraft.name.trim() }
+    if (!next.name) { setRunConfigurationError('Configuration name is required.'); return }
+    void Promise.resolve(type.validate(next, project.files)).then((issues) => {
+      if (issues.length) { setRunConfigurationError(issues.map(({ message }) => message).join(' ')); return }
+      const exists = runConfigurationsState.some(({ id }) => id === next.id)
+      persistRunConfigurations(exists ? runConfigurationsState.map((item) => item.id === next.id ? next : item) : [...runConfigurationsState, next])
+      setSelectedRunConfigurationId(next.id)
+      storeSelectedRunConfiguration(project.id, next.id)
+      setRunConfigurationDraft(null)
+      setRunConfigDialogOpen(false)
+    }).catch((error: unknown) => setRunConfigurationError(error instanceof Error ? error.message : String(error)))
+  }
 
   const tabsRef = useRef(tabs)
   useEffect(() => { tabsRef.current = tabs }, [tabs])
@@ -148,6 +308,11 @@ export function IdePage() {
     pendingSaves.current.clear()
   }, [])
   const active = tabs.find((tab) => tab.file.path === activePath)
+  const handleDiagnosticSelect = useCallback((offset: number) => {
+    if (!active) return
+    setActivePath(active.file.path)
+    setDiagnosticNavigation((current) => ({ path: active.file.path, offset, requestId: (current?.requestId ?? 0) + 1 }))
+  }, [active])
   const saveStateKey = active ? `${project.id}:${active.file.path}` : ''
   const saveState = active ? saveStates[saveStateKey] ?? 'saved' : 'saved'
   const setFileSaveState = (key: string, state: 'saved' | 'saving' | 'error') => setSaveStates((current) => ({ ...current, [key]: state }))
@@ -207,7 +372,7 @@ export function IdePage() {
   useEffect(() => {
     try {
       localStorage.setItem('webrains.tool-window-layout', JSON.stringify(toolSides))
-      localStorage.setItem('webrains.tool-window-layout-version', '4')
+      localStorage.setItem('webrains.tool-window-layout-version', '5')
     } catch { /* Layout remains usable for this session if storage is blocked. */ }
   }, [toolSides])
   useEffect(() => {
@@ -420,10 +585,19 @@ export function IdePage() {
         onDragStart={(event) => beginHeaderDrag(event, tool)}
         onDragEnd={() => { setDraggedTool(null); setDragPreview(null); clearDockDropTargets() }}
         title={isBottom ? 'Drag this header to dock the tool window' : 'Drag this header to move the tool window'}>
-        {isBottom && <ToolIcon tool={tool} />}
+        {isBottom && tool !== 'Run' && <ToolIcon tool={tool} />}
         {isBottom ? <strong>{tool}</strong> : <span>{tool}</span>}
-        {isBottom && tool === 'Problems' && <span className="problem-count">0</span>}
-        {isBottom && <div className="bottom-fill" />}
+        {isBottom && tool === 'Run' && <div className="run-session-tabs" role="tablist" aria-label="Run sessions">
+          <div className="run-session-tab" role="tab" aria-selected="true">
+            {runToolWindowProps.configurationIcon
+              ? <img className="run-session-icon" src={`${import.meta.env.BASE_URL}icons/intellij/${runToolWindowProps.configurationIcon}`} alt="" aria-hidden="true" />
+              : <img className="run-session-icon" src={`${import.meta.env.BASE_URL}icons/intellij/run.svg`} alt="" aria-hidden="true" />}
+            <span className="run-session-name">{runToolWindowProps.configurationName || 'Run'}</span>
+            <span className={`run-session-status run-session-status-${runToolWindowProps.status}`} title={runToolWindowProps.status} aria-label={runToolWindowProps.status} />
+          </div>
+        </div>}
+        {isBottom && tool === 'Problems' && <span className="problem-count">{currentDiagnostics.length}</span>}
+        {isBottom && tool !== 'Run' && <div className="bottom-fill" />}
         <button className={isBottom ? 'panel-collapse' : undefined} type="button" aria-label={hideLabel} title="Hide tool window" onClick={onHide}><img src={`${import.meta.env.BASE_URL}icons/intellij/hide.svg`} alt="" aria-hidden="true" /></button>
       </div>
       {children}
@@ -741,8 +915,8 @@ export function IdePage() {
       ]
       case 'Run': return [
         { label: 'Run…', shortcut: 'Alt+Shift+F10', run: () => setRunConfigMenuOpen(true) },
-        { label: 'Debug…', shortcut: 'Alt+Shift+F9', run: () => setRunConfigMenuOpen(true) },
-        { label: 'Edit Configurations…', shortcut: '', run: () => setRunConfigMenuOpen(true) },
+        { label: 'Debug…', shortcut: 'Alt+Shift+F9', run: () => setNotice('Python debugging is not available in the browser runtime yet.') },
+        { label: 'Edit Configurations…', shortcut: '', run: () => setRunConfigDialogOpen(true) },
       ]
       case 'Tools': return [
         { label: 'Terminal', shortcut: '', run: () => showToolWindow('Terminal') },
@@ -788,7 +962,7 @@ export function IdePage() {
 
   if (workspaceError && hasProvider) return <main className="route-fallback" role="alert"><span className="brand-mark">W</span><h1>Could not open project</h1><p>{workspaceError}</p><a className="primary-button" href={appUrl('/')}>Back to projects</a></main>
 
-  const selectedRunConfiguration: string | null = null
+  const selectedRunConfiguration = selectedConfiguration?.name ?? null
 
   return <main className="ide-shell" onClick={() => { if (menu) setMenu(null); if (runConfigMenuOpen) setRunConfigMenuOpen(false) }}>
     <header className="ide-topbar">
@@ -797,15 +971,16 @@ export function IdePage() {
       <nav className="menu-bar" aria-label="Main menu">{['File', 'Edit', 'View', 'Navigate', 'Code', 'Refactor', 'Build', 'Run', 'Tools', 'VCS', 'Window', 'Help'].map((item) => <div className="menu-wrap" key={item}><button type="button" className="menu-item" aria-expanded={menu === item} onClick={(event) => { event.stopPropagation(); setMenu(menu === item ? null : item) }}>{item}</button>{menu === item && <div className="menu-popover">{menuCommandsFor(item).map((command) => <button key={command.label} type="button" onClick={() => { if (command.label === 'Save All') flushAllOpenFiles(); else if (command.label === 'Close Project') void navigateToProjects(); else command.run(); setMenu(null) }}><span>{command.label}</span><small>{command.shortcut}</small></button>)}</div>}</div>)}</nav>
       <div className="topbar-spacer" />
       <div className="run-config-wrap">
-        <button className="run-config" type="button" aria-haspopup="menu" aria-expanded={runConfigMenuOpen} onClick={(event) => { event.stopPropagation(); setRunConfigMenuOpen((open) => !open); setMenu(null) }}><span className="run-config-icon">◇</span><span>{selectedRunConfiguration ?? 'Add Configuration…'}</span><span className="run-config-chevron">⌄</span></button>
+        <button className="run-config" type="button" aria-haspopup="menu" aria-expanded={runConfigMenuOpen} onClick={(event) => { event.stopPropagation(); setRunConfigMenuOpen((open) => !open); setMenu(null) }}>{selectedConfigurationType?.icon ? <img className="run-config-icon" src={`${import.meta.env.BASE_URL}icons/intellij/${selectedConfigurationType.icon}`} alt="" aria-hidden="true" /> : <span className="run-config-icon">◇</span>}<span>{selectedRunConfiguration ?? 'Add Configuration…'}</span><span className="run-config-chevron">⌄</span></button>
         {runConfigMenuOpen && <div className="run-config-menu" role="menu" aria-label="Run configurations" onClick={(event) => event.stopPropagation()}>
-          <div className="run-config-empty">No run configurations available</div>
+          {runConfigurationsState.map((configuration) => { const icon = runConfigurations.type(configuration.typeId)?.icon; return <div className="run-config-menu-row" key={configuration.id} role="none"><button className="run-config-menu-select" type="button" role="menuitemradio" aria-checked={configuration.id === selectedRunConfigurationId} onClick={() => { setSelectedRunConfigurationId(configuration.id); storeSelectedRunConfiguration(project.id, configuration.id); setRunConfigMenuOpen(false) }}>{icon ? <img className="run-config-menu-icon" src={`${import.meta.env.BASE_URL}icons/intellij/${icon}`} alt="" aria-hidden="true" /> : <span className="run-config-menu-icon">◇</span>}<span>{configuration.name}</span></button><button className="run-config-menu-run" type="button" role="menuitem" aria-label={`Run ${configuration.name}`} title={`Run ${configuration.name}`} onClick={() => { setSelectedRunConfigurationId(configuration.id); storeSelectedRunConfiguration(project.id, configuration.id); setRunConfigMenuOpen(false); void runConfiguration(configuration) }}><img src={`${import.meta.env.BASE_URL}icons/intellij/run-action.svg`} alt="" aria-hidden="true" /></button></div> })}
+          {runConfigurationsState.length === 0 && <div className="run-config-empty">No configurations yet</div>}
           <div className="run-config-menu-divider" />
           <button type="button" role="menuitem" onClick={() => { setRunConfigMenuOpen(false); setRunConfigDialogOpen(true) }}>Edit Configurations…</button>
         </div>}
       </div>
-      <button className="toolbar-icon run-button" aria-label="Run" title="Run" type="button" disabled={!selectedRunConfiguration} onClick={() => { if (selectedRunConfiguration) showToolWindow('Run') }}><img src={`${import.meta.env.BASE_URL}icons/intellij/run-action.svg`} alt="" aria-hidden="true" /></button>
-      <button className="toolbar-icon debug-button" aria-label="Debug" title="Debug" type="button" disabled={!selectedRunConfiguration} onClick={() => { if (selectedRunConfiguration) showToolWindow('Debug') }}><img src={`${import.meta.env.BASE_URL}icons/intellij/debug-action.svg`} alt="" aria-hidden="true" /></button>
+      <button className="toolbar-icon run-button" aria-label="Run" title="Run" type="button" disabled={!selectedRunConfiguration || !configurationStoreIsReady} onClick={runSelectedConfiguration}><img src={`${import.meta.env.BASE_URL}icons/intellij/run-action.svg`} alt="" aria-hidden="true" /></button>
+      <button className="toolbar-icon debug-button" aria-label="Debug" title="Python debugging is not available" type="button" disabled><img src={`${import.meta.env.BASE_URL}icons/intellij/debug-action.svg`} alt="" aria-hidden="true" /></button>
       <button className="toolbar-icon" aria-label="Search files" title="Search files (Shift Shift or Ctrl+Shift+N)" type="button" onClick={() => setDialog('search')}><img src={`${import.meta.env.BASE_URL}icons/intellij/search.svg`} alt="" aria-hidden="true" /></button>
     </header>
     {workspaceError && <div className="workspace-error" role="alert">Could not open project: {workspaceError} <a href={appUrl('/')}>Back to projects</a></div>}
@@ -855,28 +1030,28 @@ export function IdePage() {
       <div className="ide-main-row">
 
       {showLeftColumn && <aside className="side-tool-column left-tool-column" style={{ width: sidebarWidth }}>
-        {leftOpen && toolSides[activeLeftTool] === 'left' && renderToolPanel({ tool: activeLeftTool, side: 'left', kind: 'side', className: 'project-panel side-tool-pane', style: { flex: leftBottomOpen && toolSides[activeLeftBottomTool] === 'left-bottom' ? `${leftSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Left tool window', hideLabel: 'Hide left tool window', onHide: () => setLeftOpen(false), children: activeLeftTool === 'Project' ? <><ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /><div className="project-panel-foot">{provider === 'drive' ? 'Google Drive' : params.has('provider') ? 'BrowserFS · IndexedDB' : 'Demo project'}</div></> : <div className="bottom-content"><ToolWindowContent tool={activeLeftTool} /></div> })}
+        {leftOpen && toolSides[activeLeftTool] === 'left' && renderToolPanel({ tool: activeLeftTool, side: 'left', kind: 'side', className: 'project-panel side-tool-pane', style: { flex: leftBottomOpen && toolSides[activeLeftBottomTool] === 'left-bottom' ? `${leftSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Left tool window', hideLabel: 'Hide left tool window', onHide: () => setLeftOpen(false), children: activeLeftTool === 'Project' ? <><ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /><div className="project-panel-foot">{provider === 'drive' ? 'Google Drive' : params.has('provider') ? 'BrowserFS · IndexedDB' : 'Demo project'}</div></> : <div className="bottom-content"><ToolWindowContent tool={activeLeftTool} diagnostics={currentDiagnostics} source={active?.document.text ?? ''} filePath={active?.file.path ?? ''} onDiagnosticSelect={handleDiagnosticSelect} runOutput={runOutput} runStatus={runStatus} onStopRun={() => { void executionManager.stop() }} runProps={runToolWindowProps} /></div> })}
         {leftOpen && leftBottomOpen && toolSides[activeLeftTool] === 'left' && toolSides[activeLeftBottomTool] === 'left-bottom' && <div className="side-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize left tool window split" onPointerDown={startLeftSplitResize} />}
-        {leftBottomOpen && toolSides[activeLeftBottomTool] === 'left-bottom' && renderToolPanel({ tool: activeLeftBottomTool, side: 'left-bottom', kind: 'side', className: 'project-panel side-tool-pane side-tool-pane-lower', style: { flex: leftOpen && toolSides[activeLeftTool] === 'left' ? `${1 - leftSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Lower left tool window', hideLabel: 'Hide lower left tool window', onHide: () => setLeftBottomOpen(false), children: activeLeftBottomTool === 'Project' ? <ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /> : <div className="bottom-content"><ToolWindowContent tool={activeLeftBottomTool} /></div> })}
+        {leftBottomOpen && toolSides[activeLeftBottomTool] === 'left-bottom' && renderToolPanel({ tool: activeLeftBottomTool, side: 'left-bottom', kind: 'side', className: 'project-panel side-tool-pane side-tool-pane-lower', style: { flex: leftOpen && toolSides[activeLeftTool] === 'left' ? `${1 - leftSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Lower left tool window', hideLabel: 'Hide lower left tool window', onHide: () => setLeftBottomOpen(false), children: activeLeftBottomTool === 'Project' ? <ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /> : <div className="bottom-content"><ToolWindowContent tool={activeLeftBottomTool} diagnostics={currentDiagnostics} source={active?.document.text ?? ''} filePath={active?.file.path ?? ''} onDiagnosticSelect={handleDiagnosticSelect} runOutput={runOutput} runStatus={runStatus} onStopRun={() => { void executionManager.stop() }} runProps={runToolWindowProps} /></div> })}
       </aside>}
       {showLeftColumn && <div className="resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize left tool window" onPointerDown={startResize} />}
       <section className="editor-area" aria-label="Editor workspace">
         <div className="tabs-row">{tabs.map((tab) => <div role="tab" aria-selected={activePath === tab.file.path} tabIndex={0} className={`editor-tab${activePath === tab.file.path ? ' active' : ''}`} key={tab.file.path} onClick={() => setActivePath(tab.file.path)} onKeyDown={(event) => { if (event.key === 'Enter') setActivePath(tab.file.path) }}><span className="tab-type">{tab.file.name.endsWith('.py') ? 'Py' : tab.file.name.endsWith('.tsx') || tab.file.name.endsWith('.ts') ? 'TS' : tab.file.name.endsWith('.css') ? '#' : tab.file.name.endsWith('.md') ? 'MD' : '◇'}</span><span>{tab.file.name}</span><button type="button" aria-label={`Close ${tab.file.name}`} onClick={(event) => { event.stopPropagation(); const rest = tabs.filter((candidate) => candidate !== tab); tab.editor.dispose(); tab.document.dispose(); setTabs(rest); if (activePath === tab.file.path) setActivePath(rest.at(-1)?.file.path ?? '') }}>{'×'}</button></div>)}<button className="new-tab" type="button" aria-label="Create new file" onClick={() => { setCreationParent(''); setQuery(''); setDialog('new') }}>＋</button><div className="tabs-fill" /><button className="toolbar-icon tab-search" type="button" aria-label="Search files" onClick={() => setDialog('search')}><img src={`${import.meta.env.BASE_URL}icons/intellij/search.svg`} alt="" aria-hidden="true" /></button></div>
-        {active ? <><div className="breadcrumbs"><span>{project.name}</span><span>›</span><span>{active.file.path.split('/').slice(-2, -1)[0]}</span><span>›</span><strong>{active.file.name}</strong></div><CodeEditor filePath={active.file.path} value={active.document.text} onChange={updateText} onCaretChange={(offset) => { active.editor.setCaretOffset(offset); setCaretStatus({ path: active.file.path, offset }) }} /><div className="editor-hint">{active.file.name.endsWith('.py') ? 'Python' : active.file.name.endsWith('.tsx') ? 'TypeScript JSX' : active.file.name.endsWith('.ts') ? 'TypeScript' : active.file.name.endsWith('.css') ? 'CSS' : active.file.name.endsWith('.md') ? 'Markdown' : 'Text'} <span>·</span> UTF-8 <span>·</span> LF</div></> : <div className="empty-editor"><span className="brand-mark">W</span><p>Open a file from the Project panel</p><kbd>Shift Shift</kbd><span>Search files</span></div>}
+        {active ? <><div className="breadcrumbs"><span>{project.name}</span><span>›</span><span>{active.file.path.split('/').slice(-2, -1)[0]}</span><span>›</span><strong>{active.file.name}</strong></div><CodeEditor filePath={active.file.path} value={active.document.text} onChange={updateText} onDiagnosticsChange={handleEditorDiagnostics} diagnosticNavigation={diagnosticNavigation?.path === active.file.path ? diagnosticNavigation : null} onCaretChange={(offset) => { active.editor.setCaretOffset(offset); setCaretStatus({ path: active.file.path, offset }) }} /><div className="editor-hint">{active.file.name.endsWith('.py') ? 'Python' : active.file.name.endsWith('.tsx') ? 'TypeScript JSX' : active.file.name.endsWith('.ts') ? 'TypeScript' : active.file.name.endsWith('.css') ? 'CSS' : active.file.name.endsWith('.md') ? 'Markdown' : 'Text'} <span>·</span> UTF-8 <span>·</span> LF</div></> : <div className="empty-editor"><span className="brand-mark">W</span><p>Open a file from the Project panel</p><kbd>Shift Shift</kbd><span>Search files</span></div>}
 
       </section>
       {showRightColumn && <div className="resize-handle resize-handle-right" role="separator" aria-orientation="vertical" aria-label="Resize right tool window" onPointerDown={startRightResize} />}
       {showRightColumn && <aside className="side-tool-column right-tool-column" style={{ width: rightSidebarWidth }}>
-        {showRightTopPanel && renderToolPanel({ tool: activeRightTool, side: 'right', kind: 'side', className: 'right-tool-panel side-tool-pane', style: { flex: showRightBottomPanel ? `${rightSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Right tool window', hideLabel: 'Hide right tool window', onHide: () => setRightOpen(false), children: activeRightTool === 'Project' ? <ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /> : <div className="bottom-content"><ToolWindowContent tool={activeRightTool} /></div> })}
+        {showRightTopPanel && renderToolPanel({ tool: activeRightTool, side: 'right', kind: 'side', className: 'right-tool-panel side-tool-pane', style: { flex: showRightBottomPanel ? `${rightSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Right tool window', hideLabel: 'Hide right tool window', onHide: () => setRightOpen(false), children: activeRightTool === 'Project' ? <ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /> : <div className="bottom-content"><ToolWindowContent tool={activeRightTool} diagnostics={currentDiagnostics} source={active?.document.text ?? ''} filePath={active?.file.path ?? ''} onDiagnosticSelect={handleDiagnosticSelect} runOutput={runOutput} runStatus={runStatus} onStopRun={() => { void executionManager.stop() }} runProps={runToolWindowProps} /></div> })}
         {showRightTopPanel && showRightBottomPanel && <div className="side-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize right tool window split" onPointerDown={startRightSplitResize} />}
-        {showRightBottomPanel && renderToolPanel({ tool: activeRightBottomTool, side: 'right-bottom', kind: 'side', className: 'right-tool-panel side-tool-pane side-tool-pane-lower', style: { flex: showRightTopPanel ? `${1 - rightSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Lower right tool window', hideLabel: 'Hide lower right tool window', onHide: () => setRightBottomOpen(false), children: <div className="bottom-content"><ToolWindowContent tool={activeRightBottomTool} /></div> })}
+        {showRightBottomPanel && renderToolPanel({ tool: activeRightBottomTool, side: 'right-bottom', kind: 'side', className: 'right-tool-panel side-tool-pane side-tool-pane-lower', style: { flex: showRightTopPanel ? `${1 - rightSplitHeight} 1 0` : '1 1 0' }, ariaLabel: 'Lower right tool window', hideLabel: 'Hide lower right tool window', onHide: () => setRightBottomOpen(false), children: <div className="bottom-content"><ToolWindowContent tool={activeRightBottomTool} diagnostics={currentDiagnostics} source={active?.document.text ?? ''} filePath={active?.file.path ?? ''} onDiagnosticSelect={handleDiagnosticSelect} runOutput={runOutput} runStatus={runStatus} onStopRun={() => { void executionManager.stop() }} runProps={runToolWindowProps} /></div> })}
       </aside>}
 
       </div>
       {(bottomOpen || bottomRightOpen) && <div className="bottom-panels-row" style={{ height: bottomPanelHeight }}>
-        {bottomOpen && renderToolPanel({ tool: panel, side: 'bottom', kind: 'bottom', className: 'bottom-panel dock-drop-zone', style: { flex: bottomRightOpen ? `${bottomSplitWidth} 1 0` : '1 1 0' }, ariaLabel: 'Bottom-left tool window', hideLabel: 'Hide bottom tool window', onHide: () => setBottomOpen(false), children: <div className="bottom-content">{panel === 'Project' ? <div className="bottom-project-tree"><ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /></div> : <ToolWindowContent tool={panel} />}</div> })}
+        {bottomOpen && renderToolPanel({ tool: panel, side: 'bottom', kind: 'bottom', className: 'bottom-panel dock-drop-zone', style: { flex: bottomRightOpen ? `${bottomSplitWidth} 1 0` : '1 1 0' }, ariaLabel: 'Bottom-left tool window', hideLabel: 'Hide bottom tool window', onHide: () => setBottomOpen(false), children: <div className="bottom-content">{panel === 'Project' ? <div className="bottom-project-tree"><ProjectTree root={project.files.root} rootName={project.name} onOpen={openFile} onCreateFile={treeCreateFile} onCreateFolder={treeCreateFolder} onDelete={treeDeleteEntry} /></div> : <ToolWindowContent tool={panel} diagnostics={currentDiagnostics} source={active?.document.text ?? ''} filePath={active?.file.path ?? ''} onDiagnosticSelect={handleDiagnosticSelect} runOutput={runOutput} runStatus={runStatus} onStopRun={() => { void executionManager.stop() }} runProps={runToolWindowProps} />}</div> })}
         {bottomOpen && bottomRightOpen && <div className="bottom-side-splitter" role="separator" aria-orientation="vertical" aria-label="Resize bottom tool-window split" onPointerDown={startBottomSplitResize} />}
-        {bottomRightOpen && renderToolPanel({ tool: activeBottomRightTool, side: 'bottom-right', kind: 'bottom', className: 'bottom-panel bottom-panel-right dock-drop-zone', style: { flex: bottomOpen ? `${1 - bottomSplitWidth} 1 0` : '0 0 50%' }, ariaLabel: 'Bottom-right tool window', hideLabel: 'Hide bottom-right tool window', onHide: () => setBottomRightOpen(false), children: <div className="bottom-content"><ToolWindowContent tool={activeBottomRightTool} /></div> })}
+        {bottomRightOpen && renderToolPanel({ tool: activeBottomRightTool, side: 'bottom-right', kind: 'bottom', className: 'bottom-panel bottom-panel-right dock-drop-zone', style: { flex: bottomOpen ? `${1 - bottomSplitWidth} 1 0` : '0 0 50%' }, ariaLabel: 'Bottom-right tool window', hideLabel: 'Hide bottom-right tool window', onHide: () => setBottomRightOpen(false), children: <div className="bottom-content"><ToolWindowContent tool={activeBottomRightTool} diagnostics={currentDiagnostics} source={active?.document.text ?? ''} filePath={active?.file.path ?? ''} onDiagnosticSelect={handleDiagnosticSelect} runOutput={runOutput} runStatus={runStatus} onStopRun={() => { void executionManager.stop() }} runProps={runToolWindowProps} /></div> })}
       </div>}
     </div>
     <footer className="status-bar">
@@ -887,6 +1062,12 @@ export function IdePage() {
         <span>WebBrains</span>
       </div>
       <div className="status-right">
+        {currentDiagnostics.length > 0
+          ? <button type="button" className={`problems-status${currentDiagnostics.some((item) => item.severity === 'error') ? ' has-errors' : currentDiagnostics.some((item) => item.severity === 'warning') ? ' has-warnings' : ''}`} aria-label={`Show problems: ${currentDiagnostics.filter((item) => item.severity === 'error').length} errors, ${currentDiagnostics.filter((item) => item.severity === 'warning').length} warnings`} title="Show problems" onClick={() => showToolWindow('Problems')}>
+              <img src={`${import.meta.env.BASE_URL}icons/intellij/problems.svg`} alt="" aria-hidden="true" />
+              <span>{currentDiagnostics.length}</span>
+            </button>
+          : <span className="status-check" title="No problems detected">✓</span>}
         <span>{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
         <span>{active ? (() => {
           const caretOffset = caretStatus.path === active.file.path ? caretStatus.offset : active.editor.caretOffset
@@ -897,11 +1078,24 @@ export function IdePage() {
         <span>Spaces: 2</span>
         <span>UTF-8</span>
         <span>{active?.file.name.endsWith('.py') ? 'Python' : active?.file.name.endsWith('.css') ? 'CSS' : active?.file.name.endsWith('.json') ? 'JSON' : active?.file.name.endsWith('.md') ? 'Markdown' : active?.file.name.endsWith('.toml') ? 'TOML' : 'TypeScript'}</span>
-        <span className="status-check">✓</span>
       </div>
     </footer>
     {notice && <div role="status" className="toast-notice">{notice}<button type="button" aria-label="Dismiss notification" onClick={() => setNotice('')}>×</button></div>}
-    {runConfigDialogOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setRunConfigDialogOpen(false) }}><section className="quick-dialog run-config-dialog" role="dialog" aria-modal="true" aria-labelledby="run-config-dialog-title"><div className="run-config-dialog-heading"><strong id="run-config-dialog-title">Run/Debug Configurations</strong><button type="button" aria-label="Close configurations" onClick={() => setRunConfigDialogOpen(false)}>×</button></div><div className="run-config-dialog-empty">No configuration types are available yet. Plugins can contribute run/debug configuration types.</div><div className="run-config-dialog-actions"><button type="button" onClick={() => setRunConfigDialogOpen(false)}>Close</button></div></section></div>}
+    {runConfigDialogOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) { setRunConfigDialogOpen(false); setRunConfigurationDraft(null) } }}><section className="quick-dialog run-config-dialog" role="dialog" aria-modal="true" aria-labelledby="run-config-dialog-title"><div className="run-config-dialog-heading"><strong id="run-config-dialog-title">Run/Debug Configurations</strong><button type="button" aria-label="Close configurations" onClick={() => { setRunConfigDialogOpen(false); setRunConfigurationDraft(null) }}>×</button></div><div className="run-config-dialog-body">
+      <div className="run-config-types"><strong>Configurations</strong>{runConfigurationsState.map((configuration) => <button type="button" key={configuration.id} className={runConfigurationDraft?.id === configuration.id ? 'selected' : ''} onClick={() => { setRunConfigurationDraft(configuration); setRunConfigurationError('') }}>{configuration.name}<small>{runConfigurations.type(configuration.typeId)?.displayName ?? configuration.typeId}</small></button>)}<strong className="run-config-type-heading">Add new</strong>{runConfigurations.allTypes().filter((type) => runConfigurations.canCreateConfiguration(type.id)).map((type) => <button type="button" key={type.id} onClick={() => createRunConfiguration(type.id)}>＋ {type.displayName}</button>)}</div>
+      {runConfigurationDraft ? <div className="run-config-editor"><label>Configuration name<input value={runConfigurationDraft.name} onChange={(event) => setRunConfigurationDraft({ ...runConfigurationDraft, name: event.target.value })} /></label>{runConfigurations.type(runConfigurationDraft.typeId)?.fields?.filter((field) => !field.visibleWhen || String((runConfigurationDraft.options as Record<string, unknown>)[field.visibleWhen.field] ?? '') === field.visibleWhen.value).map((field) => {
+        const value = (runConfigurationDraft.options as Record<string, unknown>)[field.id]
+        const updateValue = (nextValue: unknown) => setRunConfigurationDraft({ ...runConfigurationDraft, options: { ...(runConfigurationDraft.options as Record<string, unknown>), [field.id]: nextValue } })
+        return <label key={field.id}>
+          {field.kind === 'boolean' ? <span className="run-config-boolean-control"><input type="checkbox" checked={value === true} onChange={(event) => updateValue(event.target.checked)} /><span>{field.label}</span></span> : <span>{field.label}</span>}
+          {field.kind === 'choice' ? <select value={String(value ?? '')} onChange={(event) => updateValue(event.target.value)}>{field.choices?.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
+            : field.kind === 'multiline' ? <textarea rows={3} placeholder={field.placeholder} value={String(value ?? '')} onChange={(event) => updateValue(event.target.value)} />
+              : field.kind === 'boolean' ? null
+                : <input type="text" placeholder={field.placeholder} value={String(value ?? '')} onChange={(event) => updateValue(event.target.value)} />}
+          {field.description && <small>{field.description}</small>}
+        </label>
+      })}{runConfigurationError && <div className="run-config-error" role="alert">{runConfigurationError}</div>}<div className="run-config-editor-actions"><button type="button" onClick={() => { const remaining = runConfigurationsState.filter(({ id }) => id !== runConfigurationDraft.id); persistRunConfigurations(remaining); if (selectedRunConfigurationId === runConfigurationDraft.id) { const nextId = remaining[0]?.id ?? ''; setSelectedRunConfigurationId(nextId); storeSelectedRunConfiguration(project.id, nextId) } setRunConfigurationDraft(null) }} disabled={!runConfigurationsState.some(({ id }) => id === runConfigurationDraft.id)}>Remove</button><button type="button" onClick={() => setRunConfigurationDraft(null)}>Cancel</button><button type="button" className="primary" onClick={saveRunConfiguration}>Apply</button></div></div> : <div className="run-config-dialog-empty">Choose a configuration or add a Python configuration.</div>}
+    </div><div className="run-config-dialog-actions"><button type="button" onClick={() => { setRunConfigDialogOpen(false); setRunConfigurationDraft(null) }}>Close</button></div></section></div>}
     {dialog && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null) }}><section className="quick-dialog" role="dialog" aria-modal="true" aria-label={dialog === 'new' ? 'New file' : dialog === 'folder' ? 'New directory' : dialog === 'actions' ? 'Find action' : 'Search files'}><div className="quick-input-row"><span>{dialog === 'new' || dialog === 'folder' ? '＋' : dialog === 'actions' ? '⌘' : '⌕'}</span><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={dialog === 'new' ? 'File name' : dialog === 'folder' ? 'Directory name' : dialog === 'actions' ? 'Type an action name' : 'Search files by name…'} onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); moveDialogSelection(1) } else if (event.key === 'ArrowUp') { event.preventDefault(); moveDialogSelection(-1) } else if (event.key === 'Enter') { event.preventDefault(); chooseDialogResult() } }} /></div>{dialog === 'new' || dialog === 'folder' ? <div className="dialog-help">{dialog === 'new' ? 'A new file will be created in the current project.' : 'A new directory will be created in the current project.'}</div> : <div className="quick-results">{dialog === 'actions' ? actionItems.map((action, index) => <button key={action.label} className={selectedResult === index ? 'result-active' : ''} type="button" onMouseEnter={() => setSelection({ key: selectionKey, index })} onClick={() => { action.run(); if (!['Search files', 'New file'].includes(action.label)) setDialog(null) }}><span className="file-type type-other">⌘</span><span>{action.label}</span><small>{action.shortcut}</small></button>) : searchResults.map((file, index) => <button key={file.path} className={selectedResult === index ? 'result-active' : ''} type="button" onMouseEnter={() => setSelection({ key: selectionKey, index })} onClick={() => { openFile(file); setDialog(null) }}><span className="file-type type-ts">{file.name.endsWith('.tsx') || file.name.endsWith('.ts') ? 'TS' : '◇'}</span><span>{file.name}</span><small>{file.path}</small></button>)}{dialog === 'actions' && actionItems.length === 0 && <p>No matching actions</p>}{dialog === 'search' && searchResults.length === 0 && <p>No matching files</p>}</div>}<div className="dialog-footer"><span>↑↓ to navigate</span><span>Enter to open</span><span>Esc to close</span></div></section></div>}
   </main>
 }

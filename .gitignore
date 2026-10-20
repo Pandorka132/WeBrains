@@ -26,3 +26,23 @@ __pycache__/
 # Generated JetBrains plugin-to-browser build runs
 experiments/plugin-builds/
 frontend/public/plugins/
+
+# Third-party IntelliJ IDEA / IntelliJ Platform distributions and source checkouts.
+# Keep these local: the public project must not redistribute closed/commercial
+# JetBrains code or large extracted platform installations by accident.
+intellij-community/
+**/intellij-community/
+**/idea-platform/
+**/idea-*-sources/
+**/idea-*.tar.gz
+**/idea-*.zip
+
+# Original Python Community Edition plugin distribution and extracted artifacts.
+experiments/python-plugin/python-ce-*.zip
+experiments/python-plugin/artifacts/
+**/python-ce/lib/
+**/python-ce/helpers/
+
+# Locally generated JVM/WASM binaries and Java build outputs.
+*.class
+*.wasm

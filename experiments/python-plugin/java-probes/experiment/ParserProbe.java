@@ -23,11 +23,16 @@ public final class ParserProbe {
     private ParserProbe() { }
 
     public static void main(String[] args) throws Exception {
+        System.out.println("STAGE:disposer-before");
         var lifetime = Disposer.newDisposable("Python CE parser probe");
+        System.out.println("STAGE:mock-application-before");
         var application = new MockApplication(lifetime);
+        System.out.println("STAGE:mock-application-after");
         ApplicationManager.setApplication(application, lifetime);
+        System.out.println("STAGE:application-set");
         var extensionArea = application.getExtensionArea();
         extensionArea.registerExtensionPoint("Pythonid.dialectsTokenSetContributor", "com.jetbrains.python.PythonDialectsTokenSetContributor", ExtensionPoint.Kind.INTERFACE, true);
+        System.out.println("STAGE:extension-point-registered");
         var tokenSetContributors = extensionArea.<Object>getExtensionPoint("Pythonid.dialectsTokenSetContributor");
         for (String className : List.of(
             "com.jetbrains.python.PythonTokenSetContributor",
@@ -36,10 +41,13 @@ public final class ParserProbe {
             tokenSetContributors.registerExtension(Class.forName(className).getDeclaredConstructor().newInstance());
         }
         application.registerService(PyElementTypesFacade.class, (PyElementTypesFacade) Class.forName("com.jetbrains.python.PyElementTypesFacadeImpl").getDeclaredConstructor().newInstance());
+        System.out.println("STAGE:element-types-facade-registered");
         ParserDefinition definition = createDefinition();
+        System.out.println("STAGE:parser-definition-created");
         String source = args.length == 0 ? "if True:\n    print(1)\n" : args[0];
         PsiBuilder builder = new PsiBuilderFactoryImpl().createBuilder(definition, definition.createLexer(null), source);
         definition.createParser(null).parse(definition.getFileNodeType(), builder);
+        System.out.println("STAGE:parse-complete");
         ASTNode root = builder.getTreeBuilt();
         List<String> errors = new ArrayList<>();
         collect(root, source, errors);
