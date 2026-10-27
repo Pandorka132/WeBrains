@@ -17,6 +17,7 @@ pnpm-debug.log*
 # IDEs and operating systems
 .idea/
 .vscode/
+*.iml
 .DS_Store
 
 # Python bytecode and test caches
@@ -46,3 +47,4 @@ experiments/python-plugin/artifacts/
 # Locally generated JVM/WASM binaries and Java build outputs.
 *.class
 *.wasm
+*.jar
