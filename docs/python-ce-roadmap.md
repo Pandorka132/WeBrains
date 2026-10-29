@@ -87,3 +87,50 @@ The build tool is profile-driven. It can inspect an unknown plugin archive and w
 - Do not silently substitute handwritten tokenization, fake IntelliJ classes, or unapproved compatibility workarounds for original behavior.
 - Do not push to GitHub or publish the local GraalVM compiler patch unless explicitly asked.
 - Keep large downloaded archives, platform JARs, compiler builds, generated Wasm, and diagnostics out of Git unless there is a deliberate, reviewed reason to track them.
+
+## Original completion contributor probe (2026-10-28)
+
+The JVM harness now invokes the unmodified `com.jetbrains.python.codeInsight.completion.PyKeywordCompletionContributor` against real Python PSI from Python CE 263.7031.23. The first zero-result runs exposed a bootstrap error in the harness: passing `PythonFileType` through `CoreApplicationEnvironment` created a `PsiPlainTextFileImpl`, so the Python contributor's PSI patterns could never match. The harness now creates the PSI file with `PythonLanguage.INSTANCE` and registers the original `PyLanguageFacadeImpl` service, alongside the original `TailTypeFactory` service and the Python registry keys. The position is set to the start of IntelliJ's `IntellijIdeaRulezzz` dummy identifier (the actual caret offset), not the end of the fixture.
+
+Verified fixture `if TruIntellijIdeaRulezzz` returns original contributor items `[not, lambda, True, False, None]`; the PSI chain contains `PyReferenceExpressionImpl`, `PyIfPartIfImpl`, `PyIfStatementImpl`, and `PyFileImpl`. Additional contexts also return original results: inside a function body the contributor returns 32 statement/expression keywords, and after a `try` body it returns 31 candidates including `except`/`finally`. A `from os import pa…` fixture returns no items from this one contributor, as expected for a contributor focused on Python keywords rather than import members. These are successful JVM reference checks for this original contributor, not proof of the full IntelliJ completion pipeline or browser integration.
+
+- Probe: `experiments/python-plugin/java-probes/experiment/PythonCompletionProbe.java`
+- Registry metadata helper: `experiments/python-plugin/java-probes/experiment/PythonRegistryKeys.java`
+- Verified: non-empty results from the original contributor in several Python PSI contexts, with the matching Python CE/platform JARs. Frontend `npm run build`, `npm run lint`, and `git diff --check` also pass.
+- Superseded by the WASM completion probe below: the original contributor now runs in Web Image and is connected to the editor completion registry through a local worker adapter. The adapter is limited to the original keyword contributor; import-member completion, unresolved references, and the broader completion pipeline are not included.
+
+
+## WASM completion probe follow-up (2026-10-29)
+
+The Web Image smoke test now gets past the original dynamic-proxy registration failures after adding GraalVM reachability metadata for IntelliJ listener proxies. The probe was also decoupled from a host-only plugin descriptor directory: the required registry keys are registered directly in the isolated harness, which avoids relying on host filesystem paths inside the WASM runtime. Adding `-H:+AddAllCharsets` gets past Python parser initialization's `UTF-32BE` charset failure.
+
+The next runtime blocker is now resource-bundle registration for the original Python parser (`messages.PyParserBundle`); the smoke test still fails before completion candidates are emitted. The probe also needs further platform registry initialization and reflective service setup. This remains a feasibility experiment only: the browser completion popup is not fixed or connected to the original contributor. Do not install the artifact into the frontend until the runtime smoke test passes and a real worker protocol is implemented.
+
+
+## WASM completion probe follow-up 2 (2026-10-29)
+
+Explicit resource-bundle options let the WASM smoke test get past the earlier `PyParserBundle` registration error. The current failure has moved further into execution and is now `jdk.graal.compiler.debug.GraalError: unimplemented override`, after Python PSI/parser initialization begins. The original contributor still works in the JVM reference probe and returns five items for `if Tru…`. The Web Image binary builds, but runtime execution does not complete, so this still does not constitute browser integration and the editor popup remains unconnected.
+
+The experimental profile currently explicitly includes the Python parser bundle/resources and all charsets, plus reachability metadata for listener proxies. Stage logging narrows the latest failure further: `PsiFileFactory.createFileFromText(...)`, `file.findElementAt(...)`, `project.isDisposed()`, `file.getVirtualFile().isValid()`, `file.isValid()`, and one direct `ASTNode.getTreeParent()` call all complete. The failure is reproducibly triggered by `position.getContainingFile()` / `position.isValid()`. Bytecode inspection shows `SharedImplUtil.getContainingFile()` walks to the root `FileElement` and calls `FileASTNode.getPsi()`; a manual root walk succeeds, but calling `rootNode.getPsi()` itself triggers `GraalError: unimplemented override`. `FileElement` inherits the final `CompositeElement.getPsi()` implementation. That implementation first calls `ProgressIndicatorProvider.checkCanceled()`, reads the cached `myWrapper`, and on a cache miss calls the virtual `createPsiNoLock()` before caching via `AtomicReferenceFieldUpdater.compareAndSet(...)`; `FileElement` overrides `createPsiNoLock()`. I added a separate stage immediately before that lazy PSI path and confirmed that calling `ProgressIndicatorProvider.checkCanceled()` directly already throws the same `GraalError: unimplemented override`. The progress manager lookup itself succeeds and resolves to `com.intellij.openapi.progress.impl.CoreProgressManager`; its `doCheckCanceled()` override is therefore the next concrete dispatch to isolate. This is before `CompletionParameters` can finish and before `fillCompletionVariants(...)` is called. The original contributor still passes on JVM. Next inspect the `CoreProgressManager.doCheckCanceled()` call chain and map the failing virtual dispatch in Web Image; do not replace it with handwritten PSI/completion logic.
+
+## WASM completion contributor and editor adapter (2026-10-29)
+
+The completion WASM blocker was traced through the original IntelliJ progress/cancellation path. `DebugAttachDetectorArgs` calls `ManagementFactory.getRuntimeMXBean().getInputArguments()` and then attempts to read VM agent properties. Web Image's `WebImageJavaMainSupport.getInputArguments()` was an explicit `unimplementedOverride`, and the JDK's `VMSupport.initAgentProperties` native method was unsupported. The local, ignored GraalVM source now returns an empty argument list (the browser runtime has no JVM process command line) and substitutes agent-property initialization with an empty properties pass-through for Web Image. After that, the completion probe needed additional original platform reflection/proxy metadata and the `editor.range.marker.use.pmarker.internal` registry key. No JetBrains plugin JAR was changed.
+
+The original `com.jetbrains.python.codeInsight.completion.PyKeywordCompletionContributor` now completes successfully in Web Image WASM GC. The harness filters lookup elements using the original prefix matcher semantics rather than returning every item emitted by the contributor. Verified runtime fixtures:
+
+- `if Tru` at caret offset 6 returns `["True"]`.
+- `def f():\n    pas` at caret offset 16 returns `["pass"]`.
+- Two calls to `GraalVM.run(...)` in the same JavaScript worker context succeeded sequentially in a Node worker-context harness; each invocation creates a fresh Web Image runtime, so it does not reuse a Java main-thread instance.
+
+A worker adapter is now in `experiments/plugin-build/templates/python-ce-completion.worker.js`; `scripts/plugin_web_build.py` supports profile-specific worker templates and generates the correct per-image WASM path. `frontend/src/platform/core/pythonCompletion.ts` compiles the 34 MiB completion module once, keeps a worker alive, tracks/cancels lookup requests, and exposes the original contributor through the existing `EditorCompletionContributorRegistry`. The bundled PythonCore plugin registers it, and `CodeEditor` already requests completion on typing and Ctrl+Space. Generated local artifacts are copied to the Git-ignored `frontend/public/plugins/pythoncore/` folder for local testing.
+
+Verified after this integration slice:
+
+- Profile `experiments/plugin-build/profiles/python-ce-completion.json`: `BUILD_AND_RUNTIME_TEST_PASSED`.
+- Worker-context harness returned exactly `True` and `pass` for the two fixtures above.
+- Python build-pipeline unit tests pass.
+- Frontend platform tests, style tests, lint, and production build pass; lint reports the same 9 existing warnings and no errors.
+- `git diff --check` passes.
+
+The actual worker was also exercised in headless Firefox 159 against the local Vite server: two sequential requests returned `True` and `pass`, including the real browser Worker, `fetch`, WASM compilation, and asset URLs. This is a browser-level worker smoke test, not a test of typing into the React editor or its popup. The local browser automation interceptor is unavailable, so the React editor has **not** been verified end-to-end. The completion image is about 34 MiB and each request creates a fresh Web Image runtime, so startup latency must be measured. This integration only provides keyword completion from the original contributor. Import member completion, unresolved-reference completion, completion ranking/insert handlers, live IntelliJ editor services, and full PSI-backed inspections are not implemented by this slice. Do not claim full IntelliJ/Python CE completion parity.

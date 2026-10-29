@@ -1,5 +1,6 @@
 import { PluginRuntime } from './runtime.ts'
 import { diagnosePythonSyntax, disposePythonSyntaxDiagnostics } from './pythonDiagnostics.ts'
+import { pythonCeKeywordCompletionContributor } from '../core/pythonCompletion.ts'
 import { PYTHON_EXECUTOR_ID, PyodidePythonExecutor, pythonRunConfigurationType } from '../core/pythonExecution.ts'
 /** The production SPA uses statically bundled plugin modules; no JAR loading is implied. */
 export const pluginRuntime = new PluginRuntime()
@@ -27,6 +28,7 @@ pluginRuntime.register({
   manifest: { id: 'PythonCore', name: 'Python Community Edition', version: '263.7031.23' },
   activate(context) {
     context.register(context.fileTypes.register({ id: 'python-ce.file-type', name: 'Python', extensions: ['py', 'pyi'], languageId: 'python' }))
+    context.register(context.editorCompletionContributors.register(pythonCeKeywordCompletionContributor))
     context.register(context.runConfigurations.registerType(pythonRunConfigurationType))
     context.register(context.runConfigurations.registerExecutor(PYTHON_EXECUTOR_ID, pythonExecutor))
     // Transitional adapter only: the original PythonEnterHandler needs IntelliJ's live

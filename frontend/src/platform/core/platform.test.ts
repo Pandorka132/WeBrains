@@ -345,7 +345,7 @@ test('bundled Python CE contribution registers project template, code style, and
   assert.equal(editorLanguageServices.forFileName('main.py')?.tabSize, 4)
   assert.equal(typeof editorLanguageServices.forFileName('main.py')?.diagnose, 'function')
   assert.deepEqual(editorLanguageServices.forFileName('main.py')?.autoClosingPairs?.map(({ open, close }) => `${open}${close}`), ['()', '[]', '{}', "''", '""'])
-  assert.deepEqual(pluginRuntime.editorCompletionContributors.forLanguage('python').map(({ id }) => id), [])
+  assert.deepEqual(pluginRuntime.editorCompletionContributors.forLanguage('python').map(({ id }) => id), ['python-ce.original-keyword-completion'])
   const edit = pluginRuntime.editorKeyHandlers.dispatch({
     key: 'Enter', filePath: 'main.py', source: 'if True:', caretOffset: 8,
     selection: { startOffset: 8, endOffset: 8 }, shiftKey: false, indentSize: 4,

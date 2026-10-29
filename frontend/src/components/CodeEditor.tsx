@@ -135,6 +135,7 @@ function highlightLine(line: string, isPython: boolean, pythonTokens?: readonly 
 
 export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnosticsChange, diagnosticNavigation }: CodeEditorProps) {
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const completionPopup = useRef<HTMLDivElement>(null)
   const nextRequestId = useRef(0)
   const latestRequestId = useRef(0)
   const lastDiagnosticNavigationId = useRef(0)
@@ -167,6 +168,22 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnos
   }), [activePythonTokens])
   const activeDiagnostics = useMemo(() => [...activeLanguageDiagnostics, ...activeInspectionDiagnostics, ...lexicalDiagnostics], [activeLanguageDiagnostics, activeInspectionDiagnostics, lexicalDiagnostics])
   const completionPrefix = value.slice(0, caretOffset).match(/[A-Za-z_]\w*$/)?.[0] ?? ''
+
+  // Capture the shortcut before React's delegated key handlers.
+  useEffect(() => {
+    const onCompletionShortcut = (event: KeyboardEvent) => {
+      const target = event.target
+      const isEditor = target instanceof HTMLTextAreaElement && target.classList.contains('code-input')
+      const isSpace = event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar'
+      if (!isEditor || !(event.ctrlKey || event.metaKey) || !isSpace) return
+      event.preventDefault()
+      event.stopPropagation()
+      setCompletionItems([])
+      setCompletionRequested(true)
+    }
+    window.addEventListener('keydown', onCompletionShortcut, true)
+    return () => window.removeEventListener('keydown', onCompletionShortcut, true)
+  }, [])
 
   useEffect(() => {
     if (!isPython) return
@@ -226,6 +243,19 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnos
     }, 60)
     return () => { window.clearTimeout(debounce); controller.abort() }
   }, [completionRequested, editorLanguageService, value, caretOffset, completionPrefix, activePythonTokens, scroll.left, scroll.top])
+
+  useEffect(() => {
+    if (!completionRequested || completionItems.length === 0) return
+    const popup = completionPopup.current
+    const selectedItem = popup?.querySelector<HTMLElement>(`[data-completion-index="${completionIndex}"]`)
+    if (!popup || !selectedItem) return
+    // IntelliJ keeps the selected lookup row visible while navigating the list.
+    // Scroll only the popup, not the editor or the surrounding page.
+    const popupBounds = popup.getBoundingClientRect()
+    const itemBounds = selectedItem.getBoundingClientRect()
+    if (itemBounds.bottom > popupBounds.bottom) popup.scrollTop += itemBounds.bottom - popupBounds.bottom
+    else if (itemBounds.top < popupBounds.top) popup.scrollTop -= popupBounds.top - itemBounds.top
+  }, [completionIndex, completionItems, completionRequested])
 
   useEffect(() => {
     onDiagnosticsChange?.(activeDiagnostics)
@@ -352,8 +382,8 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnos
       return <div key={i} className={`line-number${caretLine === i ? ' current' : ''}`}>{severity && <span className={`gutter-diagnostic gutter-diagnostic-${severity}`} title={lineDiagnostics[0].message}>●</span>}{i + 1}</div>
     })}</div>
     <pre className="syntax-layer" aria-hidden="true" style={{ transform: `translate(${-scroll.left}px, -${scroll.top}px)` }}>{lines.map((line, i) => <div className="code-line" key={i}>{highlightLine(line, isPython, activePythonTokens, lineOffsets[i], activeDiagnostics)}</div>)}</pre>
-    {completionRequested && completionItems.length > 0 && <div className="completion-popup" role="listbox" aria-label="Code completion" style={{ left: completionPosition.left, top: completionPosition.top }}>
-      {completionItems.map((item, index) => <button type="button" role="option" aria-selected={index === completionIndex} className={`completion-item${index === completionIndex ? ' selected' : ''}`} key={`${item.label}-${index}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setCompletionIndex(index)} onClick={() => applyCompletion(item)}>
+    {completionRequested && completionItems.length > 0 && <div ref={completionPopup} className="completion-popup" role="listbox" aria-label="Code completion" style={{ left: completionPosition.left, top: completionPosition.top }}>
+      {completionItems.map((item, index) => <button type="button" role="option" data-completion-index={index} aria-selected={index === completionIndex} className={`completion-item${index === completionIndex ? ' selected' : ''}`} key={`${item.label}-${index}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setCompletionIndex(index)} onClick={() => applyCompletion(item)}>
         <span className="completion-label">{item.label}</span>
       </button>)}
     </div>}

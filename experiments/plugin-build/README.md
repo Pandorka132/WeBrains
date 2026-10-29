@@ -24,13 +24,19 @@ The compiler can also be supplied with `WEB_IMAGE`, `JAVAC`, and `JAVA_HOME`. Th
 
 ## Current profile
 
-`profiles/python-ce-lexer.json` targets plugin ID `PythonCore`. It builds the unmodified original Python CE lexer with the host-side `LexerProbe` and expects `LEXER_OK tokens=22` at runtime. The original JetBrains JARs are only read; they are never patched. For the browser-worker adapter and local editor integration, run:
+The default profile remains `profiles/python-ce-lexer.json`, targeting plugin ID `PythonCore`. It builds the unmodified original Python CE lexer with the host-side `LexerProbe` and expects `LEXER_OK tokens=22` at runtime. The original JetBrains JARs are only read; they are never patched. To install the lexer artifacts locally, run:
 
 ```sh
 python3 scripts/plugin_web_build.py experiments/python-plugin/python-ce-263.7031.23.zip --install-frontend
 ```
 
-This copies generated `.js`, `.wasm`, and worker files to the Git-ignored `frontend/public/plugins/pythoncore/` directory. The adapter runs one source per worker because repeated Java `main()` calls in the same Wasm instance fail. Node verifies the single-invocation token API, but real-browser Worker and deployment-path checks are still pending. This is not a full Python CE plugin build. See [`../../docs/python-ce-roadmap.md`](../../docs/python-ce-roadmap.md) for the current status and next steps.
+The experimental keyword-completion profile is separate and must be selected explicitly:
+
+```sh
+python3 scripts/plugin_web_build.py experiments/python-plugin/python-ce-263.7031.23.zip --profile experiments/plugin-build/profiles/python-ce-completion.json --install-frontend
+```
+
+It compiles the original `PyKeywordCompletionContributor` against real Python PSI and expects `COMPLETION_JSON=["True"]` for the `if Tru` fixture. Its worker adapter is registered with the existing editor completion API and was verified in a Node worker-context harness for both `if Tru` → `True` and function-body `pas` → `pass`. The WASM module is about 34 MiB. The worker was smoke-tested in headless Firefox 159 with two sequential requests, but the React editor popup, deployment subpaths, and latency measurements remain unverified; this is keyword completion only, not a full Python CE plugin build. Generated `.js`, `.wasm`, and worker files go to the Git-ignored `frontend/public/plugins/pythoncore/` directory. See [`../../docs/python-ce-roadmap.md`](../../docs/python-ce-roadmap.md) for the current status and next steps.
 
 Output layout:
 

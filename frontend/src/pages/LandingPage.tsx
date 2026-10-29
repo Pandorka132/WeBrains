@@ -112,6 +112,7 @@ export function LandingPage() {
 
   return <main className="landing-page">
     <header className="landing-header">
+      <meta name="google-site-verification" content="xUNSELOwv4-aq9h179pYidJ5UZIb__CegK80PvDksKM" />
       <a href={appUrl('/')} className="brand" onClick={(event) => { event.preventDefault(); navigateApp('/') }}><span>WebBrains</span></a>
       <span className="landing-header-note">Browser IDE <span className="landing-header-separator">/</span> Project chooser</span>
     </header>

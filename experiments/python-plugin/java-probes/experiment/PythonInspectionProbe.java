@@ -6,6 +6,7 @@ import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.ex.InspectionManagerEx;
 import com.intellij.core.CoreApplicationEnvironment;
 import com.intellij.core.CoreProjectEnvironment;
+import com.intellij.ide.plugins.PluginDescriptorLoader;
 import com.intellij.lang.ParserDefinition;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.mock.MockApplication;
@@ -13,6 +14,7 @@ import com.intellij.mock.MockProject;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.ExtensionPoint;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.RegistryKeyBean;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
@@ -23,6 +25,7 @@ import com.jetbrains.python.psi.types.TypeEvalContextFactory;
 import com.jetbrains.python.psi.types.TypeEvalContextFactoryImpl;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
 import java.util.List;
+import java.nio.file.Path;
 
 /** Runs the original Python CE unresolved-reference inspection against real Python PSI. */
 public final class PythonInspectionProbe {
@@ -48,6 +51,25 @@ public final class PythonInspectionProbe {
         }
         application.registerService(PyElementTypesFacade.class,
                 (PyElementTypesFacade) Class.forName("com.jetbrains.python.PyElementTypesFacadeImpl").getDeclaredConstructor().newInstance());
+        CoreApplicationEnvironment.registerExtensionPoint(extensionArea,
+                "com.intellij.registryKey", RegistryKeyBean.class);
+        Path pythonPluginRoot = Path.of("experiments/python-plugin/artifacts/.tools/python-ce-descriptor-root");
+        CoreApplicationEnvironment.registerExtensionPointAndExtensions(
+                pythonPluginRoot, "plugin.xml", extensionArea);
+        // CoreApplicationEnvironment does not run the IDE's RegistryKeyBean bootstrap. The helper
+        // contains registry metadata extracted from the original Python CE plugin/module descriptors.
+        var pluginDescriptor = PluginDescriptorLoader.loadForCoreEnv(pythonPluginRoot, "plugin.xml");
+        var registryKeys = extensionArea.<RegistryKeyBean>getExtensionPoint("com.intellij.registryKey");
+        var beanConstructor = RegistryKeyBean.class.getDeclaredConstructor();
+        beanConstructor.setAccessible(true);
+        for (String[] metadata : PythonRegistryKeys.ALL) {
+            RegistryKeyBean bean = beanConstructor.newInstance();
+            bean.key = metadata[0];
+            bean.defaultValue = metadata[1];
+            bean.description = metadata[2];
+            registryKeys.registerExtension(bean, pluginDescriptor, lifetime);
+        }
+        RegistryKeyBean.Companion.addKeysFromPlugins();
         application.registerService(TypeEvalContextFactory.class, TypeEvalContextFactoryImpl.class);
 
         ParserDefinition parserDefinition = (ParserDefinition) Class.forName("com.jetbrains.python.PythonParserDefinition").getDeclaredConstructor().newInstance();

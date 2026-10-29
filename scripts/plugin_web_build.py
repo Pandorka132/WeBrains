@@ -132,11 +132,19 @@ def load_profile(profile_arg: str | None, plugin: dict[str, Any]) -> tuple[dict[
         profile = json.loads(path.read_text(encoding="utf-8"))
         return profile, path.resolve()
     candidates = sorted(PROFILE_DIR.glob("*.json")) if PROFILE_DIR.exists() else []
+    matches: list[tuple[dict[str, Any], Path]] = []
     for path in candidates:
         profile = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(profile, dict):
+            continue
         if profile.get("pluginId") == plugin["id"]:
-            return profile, path.resolve()
-    return None, None
+            matches.append((profile, path.resolve()))
+    if not matches:
+        return None, None
+    # Preserve the existing default frontend-install workflow when several experimental
+    # capabilities have profiles for the same plugin. New probes must be selected explicitly.
+    default = next((match for match in matches if match[0].get("id") == "python-ce-lexer-wasmgc"), None)
+    return default or matches[0]
 
 
 def extract_plugin_jars(archive: Path, destination: Path, include_globs: list[str]) -> list[Path]:
@@ -274,7 +282,8 @@ def adapt_browser_wrapper(js_path: Path) -> None:
     if replacements != 1:
         raise BuildError("Generated Web Image wrapper has an unexpected WASM-instantiation layout; browser module cache patch was not applied.")
     old_tail = '''const config = new GraalVM.Config();\nGraalVM.run(load_cmd_args(),config).catch(e => { console.error(e); throw e; });\n})();'''
-    new_tail = '''const config = new GraalVM.Config();\nif (typeof self === \"object\" && typeof self.location === \"object\") {\n    config.wasm_path = new URL(\"./python-ce-lexer.js.wasm\", self.location.href).href;\n}\nglobalThis.__pythonCeStart = (source) => {\n    if (typeof source !== \"string\") {\n        throw new TypeError(\"Python source must be a string\");\n    }\n    return GraalVM.run([source], config).then(() => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"complete\", requestId: globalThis.__pythonCeRequestId });\n        }\n    }).catch(error => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"error\", requestId: globalThis.__pythonCeRequestId, message: String(error) });\n        }\n        throw error;\n    });\n};\nif (!(typeof document === \"undefined\" && typeof self === \"object\" && typeof self.postMessage === \"function\")) {\n    GraalVM.run(load_cmd_args(), config).catch(error => { console.error(error); throw error; });\n}\n})();'''
+    new_tail = '''const config = new GraalVM.Config();\nif (typeof self === \"object\" && typeof self.location === \"object\") {\n    config.wasm_path = new URL(\"./python-ce-lexer.js.wasm\", self.location.href).href;\n}\nglobalThis.__pythonCeStart = (source, caretOffset) => {\n    if (typeof source !== \"string\") {\n        throw new TypeError(\"Python source must be a string\");\n    }\n    const args = Number.isInteger(caretOffset) ? [source, String(caretOffset)] : [source];\n    return GraalVM.run(args, config).then(() => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"complete\", requestId: globalThis.__pythonCeRequestId });\n        }\n    }).catch(error => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"error\", requestId: globalThis.__pythonCeRequestId, message: String(error) });\n        }\n        throw error;\n    });\n};\nif (!(typeof document === \"undefined\" && typeof self === \"object\" && typeof self.postMessage === \"function\")) {\n    GraalVM.run(load_cmd_args(), config).catch(error => { console.error(error); throw error; });\n}\n})();'''
+    new_tail = new_tail.replace("python-ce-lexer.js.wasm", f"{js_path.name}.wasm")
     if source.count(old_tail) != 1:
         raise BuildError("Generated Web Image wrapper has an unexpected entry-point layout; browser API patch was not applied.")
     js_path.write_text(source.replace(old_tail, new_tail, 1), encoding="utf-8")
@@ -400,10 +409,14 @@ def build(args: argparse.Namespace) -> int:
     shutil.copy2(compiled_wasm, wasm_output)
     if profile.get("browserApi"):
         adapt_browser_wrapper(js_output)
-        worker_template = ROOT / "experiments" / "plugin-build" / "templates" / "python-ce-lexer.worker.js"
+        worker_template = ROOT / str(profile.get(
+            "browserWorkerTemplate",
+            "experiments/plugin-build/templates/python-ce-lexer.worker.js",
+        ))
+        worker_name = str(profile.get("browserWorkerName", "python-ce-lexer.worker.js"))
         if not worker_template.is_file():
             raise BuildError(f"Browser worker template is missing: {worker_template}")
-        shutil.copy2(worker_template, web_dir / "python-ce-lexer.worker.js")
+        shutil.copy2(worker_template, web_dir / worker_name)
 
     test_config = profile.get("runtimeTest", {})
     if test_config.get("command"):

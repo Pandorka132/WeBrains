@@ -36,8 +36,10 @@ class BrowserWrapperTests(unittest.TestCase):
             module.adapt_browser_wrapper(wrapper)
             generated = wrapper.read_text(encoding="utf-8")
 
-        self.assertIn("globalThis.__pythonCeStart = (source) =>", generated)
-        self.assertIn("GraalVM.run([source], config)", generated)
+        self.assertIn("globalThis.__pythonCeStart = (source, caretOffset) =>", generated)
+        self.assertIn("GraalVM.run(args, config)", generated)
+        self.assertIn("Number.isInteger(caretOffset)", generated)
+        self.assertIn("./python-ce-lexer.js.wasm", generated)
         self.assertIn("globalThis.__pythonCeWasmModule instanceof WebAssembly.Module", generated)
         self.assertIn("WebAssembly.instantiate(globalThis.__pythonCeWasmModule, wasmImports)", generated)
         self.assertIn('type: "complete"', generated)
@@ -45,6 +47,11 @@ class BrowserWrapperTests(unittest.TestCase):
 
 
 class PluginInspectionTests(unittest.TestCase):
+    def test_default_python_profile_stays_on_lexer_probe(self) -> None:
+        profile, path = module.load_profile(None, {"id": "PythonCore"})
+        self.assertIsNotNone(path)
+        self.assertEqual(profile["id"], "python-ce-lexer-wasmgc")
+
     def make_plugin_archive(self, destination: Path, plugin_id: str = "sample.plugin") -> Path:
         descriptor = f'''<idea-plugin><id>{plugin_id}</id><name>Sample Plugin</name><version>1.2.3</version><idea-version since-build="241" until-build="242.*"/><depends>com.intellij.modules.platform</depends><depends optional="true">org.example.optional</depends></idea-plugin>'''.encode()
         nested_buffer = io.BytesIO()
