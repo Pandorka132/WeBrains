@@ -1,0 +1,46 @@
+{
+  "id": "python-ce-keyword-completion-wasmgc",
+  "pluginId": "PythonCore",
+  "description": "Experimental build of the original Python CE keyword completion contributor against IntelliJ mock-platform services.",
+  "entrypoint": "experiment.PythonCompletionProbe",
+  "imageName": "python-ce-completion",
+  "browserApi": true,
+  "browserWorkerTemplate": "experiments/plugin-build/templates/python-ce-completion.worker.js",
+  "browserWorkerName": "python-ce-completion.worker.js",
+  "sourceFiles": [
+    "experiments/python-plugin/java-probes/experiment/PythonCompletionProbe.java",
+    "experiments/python-plugin/java-probes/experiment/PythonRegistryKeys.java"
+  ],
+  "pluginJarIncludes": [
+    "python-ce/lib/modules/*.jar",
+    "python-ce/lib/python-ce.jar"
+  ],
+  "platform": {
+    "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
+    "required": true,
+    "excludeJarNameContains": [
+      "ijent",
+      "netty",
+      "sqlite"
+    ]
+  },
+  "reflectionConfig": "experiments/plugin-build/profiles/python-ce-completion-reflection.json",
+  "imageOptions": [
+    "-H:+UnlockExperimentalVMOptions",
+    "-H:Backend=WASMGC",
+    "-H:WasmAsPath=experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as",
+    "-H:DynamicProxyConfigurationFiles=experiments/plugin-build/profiles/python-ce-completion-proxies.json",
+    "-H:ConfigurationFileDirectories=experiments/plugin-build/profiles/python-ce-completion-metadata",
+    "-H:+AddAllCharsets",
+    "-H:IncludeResourceBundles=messages.PyParserBundle,localization//messages/PyParserBundle",
+    "-H:IncludeResources=.*PyParserBundle.properties"
+  ],
+  "runtimeTest": {
+    "expectedOutput": "COMPLETION_JSON=[\"True\"]"
+  },
+  "notes": [
+    "Runs the original Python CE keyword contributor against real Python PSI under Web Image WASM GC.",
+    "The browser worker accepts source text and returns only items emitted by the original contributor.",
+    "This profile covers keyword completion only; it does not claim unresolved-reference or import-member completion."
+  ]
+}

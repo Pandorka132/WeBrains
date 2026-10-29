@@ -1,0 +1,43 @@
+{
+  "reflection": [
+    {
+      "type": {
+        "proxy": [
+          "com.intellij.openapi.vfs.VirtualFileListener"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.intellij.openapi.command.CommandListener"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.intellij.psi.util.PsiModificationTracker$Listener"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.intellij.openapi.fileEditor.impl.FileDocumentBindingListener"
+        ]
+      }
+    }
+  ],
+  "resources": [
+    {
+      "bundle": "messages.PyParserBundle"
+    },
+    {
+      "bundle": "localization//messages/PyParserBundle"
+    },
+    {
+      "glob": "**/PyParserBundle.properties"
+    }
+  ]
+}

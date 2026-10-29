@@ -1,0 +1,8 @@
+[
+  [
+    "com.intellij.openapi.vfs.VirtualFileListener"
+  ],
+  [
+    "com.intellij.openapi.fileEditor.impl.FileDocumentBindingListener"
+  ]
+]
