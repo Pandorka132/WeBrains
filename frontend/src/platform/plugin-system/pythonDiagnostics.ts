@@ -6,54 +6,75 @@ type DiagnosticResponse = {
   diagnostics: { startOffset: number; endOffset: number; message: string }[]
 } | { type: 'diagnostic-error'; requestId: number; message: string }
 
-let worker: Worker | undefined
+let wasmModulePromise: Promise<WebAssembly.Module> | undefined
 let requestSequence = 0
-const pending = new Map<number, { resolve: (items: readonly EditorDiagnostic[]) => void; reject: (error: Error) => void; cleanup: () => void }>()
 
-function getWorker(): Worker {
-  if (worker) return worker
-  const created = new Worker(new URL('../core/pythonDiagnostics.worker.ts', import.meta.url), { type: 'module', name: 'python-syntax-diagnostics' })
-  created.addEventListener('message', (event: MessageEvent<DiagnosticResponse>) => {
-    const message = event.data
-    if (!message || !('requestId' in message)) return
-    const request = pending.get(message.requestId)
-    if (!request) return
-    request.cleanup()
-    pending.delete(message.requestId)
-    if (message.type === 'diagnostic-error') request.reject(new Error(message.message))
-    else request.resolve(message.diagnostics.map((item) => ({ ...item, severity: 'error' as const, source: 'Python CE' })))
-  })
-  created.addEventListener('error', (event) => {
-    const error = new Error(event.message || 'Python syntax worker failed.')
-    for (const [id, request] of pending) { request.cleanup(); request.reject(error); pending.delete(id) }
-    created.terminate()
-    if (worker === created) worker = undefined
-  })
-  worker = created
-  return created
+function loadParserModule(): Promise<WebAssembly.Module> {
+  if (!wasmModulePromise) {
+    const wasmUrl = `${import.meta.env.BASE_URL}plugins/pythoncore/python-ce-parser.js.wasm`
+    wasmModulePromise = fetch(wasmUrl)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to load Python CE parser WASM: HTTP ${response.status}`)
+        return response.arrayBuffer()
+      })
+      .then((bytes) => WebAssembly.compile(bytes))
+      .catch((error) => {
+        wasmModulePromise = undefined
+        throw error
+      })
+  }
+  return wasmModulePromise
 }
 
-export function diagnosePythonSyntax(source: string, signal: AbortSignal): Promise<readonly EditorDiagnostic[]> {
-  if (signal.aborted) return Promise.resolve([])
-  const id = ++requestSequence
+export async function diagnosePythonSyntax(source: string, signal: AbortSignal): Promise<readonly EditorDiagnostic[]> {
+  if (signal.aborted || source.length === 0) return []
+  const wasmModule = await loadParserModule()
+  if (signal.aborted) return []
+
+  const requestId = ++requestSequence
   return new Promise((resolve, reject) => {
-    const currentWorker = getWorker()
-    const abort = () => {
-      const request = pending.get(id)
-      if (!request) return
-      request.cleanup()
-      pending.delete(id)
-      resolve([])
+    const worker = new Worker(`${import.meta.env.BASE_URL}plugins/pythoncore/python-ce-parser.worker.js`, { name: 'python-ce-parser' })
+    let settled = false
+    const cleanup = () => {
+      signal.removeEventListener('abort', abort)
+      worker.terminate()
     }
-    const cleanup = () => signal.removeEventListener('abort', abort)
-    pending.set(id, { resolve, reject, cleanup })
+    const finish = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      callback()
+    }
+    const abort = () => finish(() => resolve([]))
+
+    worker.addEventListener('message', (event: MessageEvent<DiagnosticResponse>) => {
+      const message = event.data
+      if (!message || message.requestId !== requestId) return
+      if (message.type === 'diagnostic-error') {
+        finish(() => reject(new Error(message.message)))
+        return
+      }
+      const diagnostics = message.diagnostics
+        .filter((item) => Number.isInteger(item.startOffset)
+          && Number.isInteger(item.endOffset)
+          && item.startOffset >= 0
+          && item.endOffset > item.startOffset
+          && item.endOffset <= source.length
+          && typeof item.message === 'string')
+        .map((item) => ({ ...item, severity: 'error' as const, source: 'Python CE parser' }))
+      finish(() => resolve(diagnostics))
+    })
+    worker.addEventListener('error', (event) => finish(() => reject(new Error(event.message || 'Python CE parser worker failed.'))))
     signal.addEventListener('abort', abort, { once: true })
-    currentWorker.postMessage({ type: 'diagnose', requestId: id, source })
+    if (signal.aborted) {
+      abort()
+      return
+    }
+    worker.postMessage({ type: 'diagnose', requestId, source, wasmModule })
   })
 }
 
 export function disposePythonSyntaxDiagnostics(): void {
-  worker?.terminate()
-  worker = undefined
-  for (const [id, request] of pending) { request.cleanup(); request.resolve([]); pending.delete(id) }
+  // Each parser request owns and terminates its worker. The compiled module is safely reusable.
+  wasmModulePromise = undefined
 }

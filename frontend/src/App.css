@@ -1318,9 +1318,11 @@
 /* Project chooser, with the subdued proportions of the IDEA welcome screen. */
 .landing-page {
   min-height: 100vh;
-  background: #1e1f22;
+  background: #17191e;
   color: var(--color-text);
-  background-image: radial-gradient(ellipse at 50% -18%,#30343c 0%,#1e1f22 55%);
+  background-image:
+    radial-gradient(ellipse at 78% 4%, rgba(69, 103, 164, .18), transparent 34rem),
+    radial-gradient(ellipse at 12% 18%, rgba(105, 75, 157, .11), transparent 30rem);
 }
 .landing-header-note {
   display: flex;
@@ -2411,4 +2413,197 @@
   .bottom-panel {
     min-width: 0;
   }
+}
+
+/* WeBrains public landing page refresh */
+.landing-page .landing-header {
+  height: 68px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 42px;
+  border-bottom-color: rgba(255,255,255,.07);
+}
+.landing-page .brand { font-size: 17px; letter-spacing: -.35px; }
+.landing-page .brand::before {
+  content: "W";
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: linear-gradient(145deg,#78b9ff,#5278e8 70%,#7656c9);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 750;
+  box-shadow: 0 5px 18px rgba(69,119,222,.3);
+}
+.landing-page .landing-nav { display:flex; align-items:center; gap:27px; }
+.landing-page .landing-nav > a {
+  color:#aeb5c2; text-decoration:none; font-size:12px; transition:color .15s ease;
+}
+.landing-page .landing-nav > a:hover { color:#fff; }
+.landing-page .plugin-manager-launch {
+  min-height:34px; padding:0 12px; display:inline-flex; align-items:center; gap:8px;
+  border:1px solid #414a5b; border-radius:7px; background:#242a35; color:#dce6f7;
+  font-size:11px; cursor:pointer;
+}
+.landing-page .plugin-manager-launch:hover { background:#2d3748; border-color:#5b78a5; }
+.landing-page .plugin-manager-launch > span { color:#8db8ff; font-size:15px; }
+.landing-page .landing-content { width:min(1000px,calc(100% - 56px)); padding:76px 0 32px; }
+.landing-page .landing-intro { margin-bottom:48px; max-width:790px; }
+.landing-page .landing-intro .eyebrow { color:#a9b9d4; }
+.landing-page .landing-intro h1 {
+  margin:20px 0 18px; font-size:clamp(42px,6vw,66px); line-height:1.04;
+  letter-spacing:-2.9px; font-weight:620; max-width:850px;
+}
+.landing-page .landing-intro h1 span {
+  background:linear-gradient(100deg,#b8c9e7 5%,#8faef0 48%,#b69be9 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.landing-page .landing-intro p { max-width:650px; color:#a5adbb; font-size:15px; line-height:1.75; }
+.landing-page .landing-intro-actions { display:flex; align-items:center; gap:22px; margin-top:25px; }
+.landing-page .landing-intro-actions .primary-button { min-height:42px; padding:0 16px; border-radius:8px; gap:25px; font-size:12px; }
+.landing-page .text-button, .landing-page .vision-link {
+  display:inline-flex; align-items:center; gap:9px; border:0; background:transparent;
+  color:#aebfdf; font-size:12px; cursor:pointer;
+}
+.landing-page .text-button:hover, .landing-page .vision-link:hover { color:#fff; }
+.landing-page .provider-picker { gap:12px; margin:18px 0 22px; }
+.landing-page .provider-choice {
+  min-height:78px; height:auto; padding:0 17px; border-radius:9px;
+  background:rgba(35,39,47,.88); border-color:#3a414d;
+}
+.landing-page .provider-choice.selected { background:linear-gradient(110deg,#263448,#282a39); border-color:#5b7eb4; }
+.landing-page .provider-choice-icon { width:38px; height:38px; border-radius:9px; }
+.landing-page .drive-setup { border-radius:9px; background:#232832; border-color:#414a58; }
+.landing-page .project-manager-heading {
+  display:flex; align-items:center; justify-content:space-between; margin:0 0 18px;
+  padding-bottom:18px; border-bottom:1px solid rgba(255,255,255,.08);
+}
+.landing-page .project-manager-heading h2 { margin:7px 0 4px; font-size:25px; letter-spacing:-.7px; font-weight:570; }
+.landing-page .project-manager-heading p { margin:0; color:#929baa; font-size:12px; }
+.landing-page .project-manager-mark {
+  width:45px; height:45px; display:grid; place-items:center; border:1px solid #3b4555;
+  border-radius:13px; background:linear-gradient(145deg,#29364a,#282735); color:#a9c5f5; font-size:22px;
+}
+.landing-page .project-section-heading { margin:0 0 12px; }
+.landing-page .project-section-heading > div > .eyebrow { display:none; }
+.landing-page .project-section-heading h2 { font-size:13px; color:#aeb6c3; font-weight:550; }
+.landing-page .project-count { font-size:11px; }
+.landing-page .project-list { border-color:#3b414c; border-radius:10px; background:#1b1f26; box-shadow:0 12px 35px rgba(0,0,0,.12); }
+.landing-page .saved-project-row { background:#22262e; border-bottom-color:#343a45; }
+.landing-page .saved-project { background:transparent; min-height:68px; height:68px; padding:0 16px; }
+.landing-page .saved-project:hover, .landing-page .saved-project-row:hover { background:#2a303a; }
+.landing-page .saved-project-icon { width:36px; height:36px; border-radius:9px; }
+.landing-page .project-info strong { font-size:12px; }
+.landing-page .project-info small, .landing-page .project-updated { font-size:11px; }
+.landing-page .project-open { font-size:22px; color:#8395b2; }
+.landing-page .empty-projects { height:126px; border-color:#414a58; background:rgba(31,36,45,.6); border-radius:10px; }
+.landing-page .empty-projects strong { font-size:12px; }
+.landing-page .empty-projects small { font-size:11px; }
+.landing-page .landing-actions { margin-top:16px; }
+.landing-page .landing-actions .secondary-button, .landing-page .landing-actions .primary-button { min-height:36px; border-radius:7px; }
+.landing-page .landing-actions .primary-button { gap:17px; }
+.landing-page .landing-vision { margin-top:76px; padding-top:30px; border-top:1px solid rgba(255,255,255,.09); }
+.landing-page .landing-vision > .eyebrow { margin-bottom:18px; }
+.landing-page .landing-vision-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px; }
+.landing-page .vision-card {
+  position:relative; min-height:205px; padding:20px; border:1px solid #353d4a; border-radius:11px;
+  background:linear-gradient(145deg,rgba(39,44,54,.95),rgba(29,32,39,.95));
+}
+.landing-page .vision-card-main { background:linear-gradient(145deg,rgba(43,57,77,.9),rgba(31,35,45,.96)); }
+.landing-page .vision-card-plugin { border-color:#51466b; background:linear-gradient(145deg,rgba(57,46,76,.55),rgba(30,33,42,.96)); }
+.landing-page .vision-icon {
+  display:grid; place-items:center; width:34px; height:34px; margin-bottom:18px; border-radius:9px;
+  background:#34445e; color:#b5d0ff; font-size:17px;
+}
+.landing-page .vision-card-plugin .vision-icon { background:#46385f; color:#d0baff; }
+.landing-page .vision-card h3 { margin:0 0 9px; color:#e3e8f1; font-size:14px; letter-spacing:-.2px; }
+.landing-page .vision-card p { margin:0; color:#9ca6b5; font-size:11px; line-height:1.65; }
+.landing-page .vision-status { position:absolute; top:23px; right:18px; color:#c3a8f2; font-size:8px; font-weight:700; letter-spacing:.8px; }
+.landing-page .vision-link { margin-top:14px; padding:0; font-size:10px; }
+.landing-page .landing-footer { margin-top:58px; border-top-color:rgba(255,255,255,.08); }
+.landing-page .plugin-manager-backdrop { z-index:80; }
+.landing-page .plugin-manager-dialog {
+  width:min(650px,calc(100vw - 28px)); max-height:min(760px,calc(100vh - 32px)); overflow:auto;
+  border:1px solid #454e5d; border-radius:13px; background:#20242c; color:#e2e7ef;
+  box-shadow:0 24px 90px rgba(0,0,0,.65);
+}
+.landing-page .plugin-manager-header { display:flex; align-items:flex-start; justify-content:space-between; padding:23px 25px 18px; border-bottom:1px solid #363d48; }
+.landing-page .dialog-kicker { color:#9aafd0; font-size:9px; font-weight:750; letter-spacing:1.1px; }
+.landing-page .plugin-manager-header h2 { margin:8px 0 5px; font-size:21px; letter-spacing:-.5px; }
+.landing-page .plugin-manager-header p { margin:0; color:#9ba5b4; font-size:11px; }
+.landing-page .plugin-manager-close {
+  width:30px; height:30px; border:0; border-radius:7px; background:transparent;
+  color:#aeb7c5; font-size:23px; cursor:pointer;
+}
+.landing-page .plugin-manager-close:hover { background:#343b47; color:#fff; }
+.landing-page .plugin-manager-search {
+  display:flex; align-items:center; gap:10px; margin:17px 24px 21px; padding:0 12px;
+  height:38px; border:1px solid #414b5a; border-radius:7px; background:#191d24; color:#8e9db4;
+}
+.landing-page .plugin-manager-search input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:#e5eaf2; font-size:12px; }
+.landing-page .plugin-manager-search input::placeholder { color:#737f90; }
+.landing-page .plugin-manager-section-label {
+  display:flex; align-items:center; gap:8px; margin:0 25px 9px; color:#8794a7;
+  font-size:9px; font-weight:750; letter-spacing:.9px;
+}
+.landing-page .plugin-manager-section-label span { display:grid; place-items:center; min-width:18px; height:18px; border-radius:5px; background:#303a49; color:#bdcce2; font-size:9px; }
+.landing-page .plugin-manager-list { padding:0 24px; }
+.landing-page .plugin-manager-item {
+  display:flex; align-items:center; gap:12px; min-height:66px; padding:10px 12px;
+  border:1px solid #343d49; border-radius:8px; background:#252b35;
+}
+.landing-page .plugin-manager-item + .plugin-manager-item { margin-top:7px; }
+.landing-page .plugin-manager-icon {
+  display:grid; place-items:center; width:36px; height:36px; flex:none; border-radius:9px;
+  background:linear-gradient(145deg,#5489ce,#36568c); color:white; font-size:15px; font-weight:750;
+}
+.landing-page .plugin-python-icon { background:linear-gradient(145deg,#e2c75c,#427ab5); color:#172333; }
+.landing-page .plugin-manager-copy { display:flex; flex:1; min-width:0; flex-direction:column; gap:5px; }
+.landing-page .plugin-manager-copy strong { color:#e1e7f0; font-size:12px; font-weight:600; }
+.landing-page .plugin-manager-copy small { color:#8996a8; font-size:10px; }
+.landing-page .plugin-state { display:flex; align-items:center; gap:7px; color:#a2a9b5; font-size:10px; }
+.landing-page .plugin-state i { width:6px; height:6px; border-radius:50%; background:#747e8e; }
+.landing-page .plugin-state-active { color:#9bd5ac; }
+.landing-page .plugin-state-active i { background:#6bc58a; box-shadow:0 0 9px #6bc58a66; }
+.landing-page .plugin-manager-empty { padding:24px 12px; color:#9aa4b2; text-align:center; font-size:11px; }
+.landing-page .plugin-manager-roadmap {
+  display:flex; align-items:flex-start; gap:12px; margin:19px 24px 0; padding:15px;
+  border:1px solid #51466a; border-radius:9px; background:linear-gradient(110deg,#302a3d,#292832);
+}
+.landing-page .roadmap-icon { display:grid; place-items:center; width:31px; height:31px; flex:none; border-radius:8px; background:#4a3c62; color:#d0b5ff; }
+.landing-page .plugin-manager-roadmap > div:nth-child(2) { flex:1; min-width:0; }
+.landing-page .roadmap-label { display:block; margin:1px 0 6px; color:#c0a8e8; font-size:8px; font-weight:750; letter-spacing:.8px; }
+.landing-page .plugin-manager-roadmap strong { color:#e4dcef; font-size:12px; }
+.landing-page .plugin-manager-roadmap p { margin:6px 0 0; color:#b0a9bd; font-size:10px; line-height:1.55; }
+.landing-page .roadmap-badge { padding:4px 7px; border:1px solid #65577d; border-radius:5px; color:#c9b4e9; font-size:9px; }
+.landing-page .plugin-manager-footer {
+  display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:20px;
+  padding:13px 24px; border-top:1px solid #363d48;
+}
+.landing-page .plugin-manager-footer > span { color:#8792a2; font-size:9px; line-height:1.5; }
+@media (max-width:700px) {
+  .landing-page .landing-header { height:60px; padding:0 18px; }
+  .landing-page .landing-nav { gap:13px; }
+  .landing-page .landing-nav > a { display:none; }
+  .landing-page .landing-content { width:calc(100% - 36px); padding-top:48px; }
+  .landing-page .landing-intro h1 { font-size:clamp(39px,10vw,54px); letter-spacing:-2px; }
+  .landing-page .landing-intro p { font-size:13px; }
+  .landing-page .landing-vision-grid { grid-template-columns:1fr; }
+  .landing-page .vision-card { min-height:0; }
+  .landing-page .provider-picker { grid-template-columns:1fr; }
+  .landing-page .saved-project .project-updated { display:none; }
+}
+@media (max-width:440px) {
+  .landing-page .landing-nav { gap:0; }
+  .landing-page .plugin-manager-launch { padding:0 9px; font-size:10px; }
+  .landing-page .landing-intro-actions { align-items:flex-start; flex-direction:column; gap:14px; }
+  .landing-page .project-manager-heading { margin-bottom:13px; }
+  .landing-page .plugin-manager-header { padding:19px 18px 15px; }
+  .landing-page .plugin-manager-search { margin:14px 17px 18px; }
+  .landing-page .plugin-manager-section-label { margin:0 18px 9px; }
+  .landing-page .plugin-manager-list { padding:0 17px; }
+  .landing-page .plugin-manager-roadmap { margin:16px 17px 0; }
+  .landing-page .plugin-manager-footer { align-items:flex-start; padding:12px 17px; }
 }

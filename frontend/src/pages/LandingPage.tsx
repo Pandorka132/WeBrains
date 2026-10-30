@@ -12,7 +12,7 @@ import {
   type ProjectSummary,
 } from '../platform/web-runtime/providers.ts'
 import { appUrl, navigateApp } from '../utils/routing.ts'
-import { projectTemplates } from '../platform/plugin-system/builtinPlugins.ts'
+import { pluginRuntime, projectTemplates } from '../platform/plugin-system/builtinPlugins.ts'
 
 type Provider = 'local' | 'drive'
 
@@ -28,6 +28,8 @@ export function LandingPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState('webbrains.empty-project')
   const [createMainPy, setCreateMainPy] = useState(true)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [pluginManagerOpen, setPluginManagerOpen] = useState(false)
+  const [pluginQuery, setPluginQuery] = useState('')
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; project: ProjectSummary } | null>(null)
   const [projectDeleteTarget, setProjectDeleteTarget] = useState<ProjectSummary | null>(null)
   const clientId = getConfiguredGoogleClientId()
@@ -113,13 +115,21 @@ export function LandingPage() {
   return <main className="landing-page">
     <header className="landing-header">
       <a href={appUrl('/')} className="brand" onClick={(event) => { event.preventDefault(); navigateApp('/') }}><span>WebBrains</span></a>
-      <span className="landing-header-note">Browser IDE <span className="landing-header-separator">/</span> Project chooser</span>
+      <nav className="landing-nav" aria-label="Main navigation">
+        <a href="#projects">Projects</a>
+        <a href="#vision">Our vision</a>
+        <button type="button" className="plugin-manager-launch" onClick={() => { setPluginQuery(''); setPluginManagerOpen(true) }}><span aria-hidden="true">◈</span> Plugin manager</button>
+      </nav>
     </header>
     <section className="landing-content">
       <div className="landing-intro">
-        <div className="eyebrow"><span className="status-dot" /> YOUR DEVELOPMENT WORKSPACE</div>
-        <h1>What are we<br /><span>building today?</span></h1>
-        <p>Choose where your projects live. Local projects stay in this browser; Drive projects are read and saved directly in Google Drive.</p>
+        <div className="eyebrow"><span className="status-dot" /> A NEW WAY TO DEVELOP</div>
+        <h1>The IDE you know.<br /><span>Reimagined for the web.</span></h1>
+        <p>WeBrains brings a familiar JetBrains-inspired development experience to your browser. Open a workspace, build something great, and take your tools with you.</p>
+        <div className="landing-intro-actions">
+          <a className="primary-button" href="#projects">Open your workspace <span>↓</span></a>
+          <button type="button" className="text-button" onClick={() => setPluginManagerOpen(true)}>Explore the plugin vision <span>↗</span></button>
+        </div>
       </div>
 
       <div className="provider-picker" role="tablist" aria-label="Project storage provider">
@@ -137,6 +147,10 @@ export function LandingPage() {
         <button type="button" className="secondary-button google-signin-button" disabled={busy} onClick={() => void authorize()}>{busy ? 'Connecting…' : connected ? 'Reconnect Google' : 'Sign in with Google'}<span>↗</span></button>
       </section>}
 
+      <div id="projects" className="project-manager-heading">
+        <div><div className="eyebrow">YOUR WORKSPACE</div><h2>Projects</h2><p>Pick up where you left off, or create a new project.</p></div>
+        <span className="project-manager-mark" aria-hidden="true">⌘</span>
+      </div>
       <div className="section-heading project-section-heading">
         <div><div className="eyebrow">YOUR PROJECTS</div><h2>{provider === 'local' ? 'This browser' : 'Google Drive'}</h2></div>
         <span className="project-count">{loading ? 'Loading…' : `${projects.length} ${projects.length === 1 ? 'project' : 'projects'}`}</span>
@@ -175,6 +189,27 @@ export function LandingPage() {
         <button type="button" className="secondary-button create-project-button" disabled={provider === 'drive' && !connected} onClick={() => { setError(''); setProjectName('New project'); setSelectedTemplateId('webbrains.empty-project'); setCreateMainPy(true); setCreateDialogOpen(true) }}><span>＋</span> Create project</button>
         <button type="button" className="primary-button" disabled={!projects.length} onClick={() => projects[0] && openProject(projects[0])}>Open recent <span>→</span></button>
       </div>
+      <section id="vision" className="landing-vision">
+        <div className="eyebrow">BUILT AROUND THE IDE EXPERIENCE</div>
+        <div className="landing-vision-grid">
+          <article className="vision-card vision-card-main"><span className="vision-icon">▤</span><h3>A familiar development workflow</h3><p>Project navigation, code editing, run configurations and tool windows — shaped by the IDE experience developers already know.</p></article>
+          <article className="vision-card"><span className="vision-icon">⌘</span><h3>Your tools, in the browser</h3><p>A browser-based workspace designed to make development feel at home, without a traditional desktop installation.</p></article>
+          <article className="vision-card vision-card-plugin"><span className="vision-icon">◈</span><span className="vision-status">LONG-TERM VISION</span><h3>JetBrains plugin compatibility</h3><p>Our goal is to support plugins built for JetBrains IDEs directly in WeBrains. Compatibility is a long-term goal, not a feature available today.</p><button type="button" className="vision-link" onClick={() => setPluginManagerOpen(true)}>Explore plugin manager <span>→</span></button></article>
+        </div>
+      </section>
+      {pluginManagerOpen && <div className="modal-backdrop plugin-manager-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPluginManagerOpen(false) }}>
+        <section className="plugin-manager-dialog" role="dialog" aria-modal="true" aria-labelledby="plugin-manager-title">
+          <header className="plugin-manager-header"><div><div className="dialog-kicker">EXTEND YOUR WORKSPACE</div><h2 id="plugin-manager-title">Plugin manager</h2><p>See which capabilities are currently bundled with WeBrains.</p></div><button type="button" className="plugin-manager-close" aria-label="Close plugin manager" onClick={() => setPluginManagerOpen(false)}>×</button></header>
+          <div className="plugin-manager-search"><span aria-hidden="true">⌕</span><input value={pluginQuery} onChange={(event) => setPluginQuery(event.target.value)} placeholder="Find a plugin…" aria-label="Find a plugin" /></div>
+          <div className="plugin-manager-section-label">INSTALLED IN THIS BUILD <span>{pluginRuntime.catalog.all().length}</span></div>
+          <div className="plugin-manager-list">{pluginRuntime.catalog.all().filter((plugin) => `${plugin.name} ${plugin.id}`.toLowerCase().includes(pluginQuery.toLowerCase())).map((plugin) => {
+            const active = pluginRuntime.activePluginIds().includes(plugin.id)
+            return <article className="plugin-manager-item" key={plugin.id}><span className={`plugin-manager-icon ${plugin.id === 'PythonCore' ? 'plugin-python-icon' : ''}`}>{plugin.id === 'PythonCore' ? 'Py' : 'W'}</span><span className="plugin-manager-copy"><strong>{plugin.name}</strong><small>{plugin.id} · Version {plugin.version}</small></span><span className={`plugin-state ${active ? 'plugin-state-active' : ''}`}><i />{active ? 'Enabled' : 'Inactive'}</span></article>
+          })}{pluginRuntime.catalog.all().filter((plugin) => `${plugin.name} ${plugin.id}`.toLowerCase().includes(pluginQuery.toLowerCase())).length === 0 && <div className="plugin-manager-empty">No bundled plugins match “{pluginQuery}”.</div>}</div>
+          <div className="plugin-manager-roadmap"><div className="roadmap-icon">✦</div><div><span className="roadmap-label">ON THE ROADMAP</span><strong>JetBrains plugin compatibility</strong><p>Direct support for plugins built for JetBrains IDEs is a core long-term goal for WeBrains. Existing JetBrains plugins cannot be installed here yet.</p></div><span className="roadmap-badge">Planned</span></div>
+          <footer className="plugin-manager-footer"><span>Plugin marketplace and external plugin installation are not available yet.</span><button type="button" className="secondary-button" onClick={() => setPluginManagerOpen(false)}>Close</button></footer>
+        </section>
+      </div>}
       {createDialogOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setCreateDialogOpen(false) }}>
         <form className="create-project-dialog create-project-wizard" onSubmit={(event) => { event.preventDefault(); void createProject() }}>
           <header className="wizard-header"><div className="dialog-kicker">NEW PROJECT</div><h2>Create a project</h2><p>Select a project type, then configure its name and available options.</p></header>

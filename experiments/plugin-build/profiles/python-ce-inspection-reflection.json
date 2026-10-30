@@ -1,0 +1,130 @@
+[
+  {
+    "name": "com.intellij.concurrency.VarHandleWrapperImpl",
+    "methods": [
+      {
+        "name": "useVarHandlesInConcurrentCollections",
+        "parameterTypes": []
+      }
+    ]
+  },
+  {
+    "name": "com.intellij.openapi.util.UserDataHolderBase",
+    "fields": [
+      {
+        "name": "value"
+      }
+    ]
+  },
+  {
+    "name": "com.intellij.util.containers.LockFreeCopyOnWriteArrayList",
+    "fields": [
+      {
+        "name": "array"
+      }
+    ]
+  },
+  {
+    "name": "kotlinx.coroutines.JobSupport",
+    "fields": [
+      {
+        "name": "_state$volatile"
+      },
+      {
+        "name": "_parentHandle$volatile"
+      }
+    ]
+  },
+  {
+    "name": "com.jetbrains.python.PythonTokenSetContributor",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.documentation.doctest.PyDoctestTokenSetContributor",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.codeInsight.typeRepresentation.PyTypeRepresentationTokenSetContributor",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.PyElementTypesFacadeImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.PythonDialectsTokenSetProvider",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.impl.source.tree.TreeElement",
+    "fields": [
+      {
+        "name": "myNextSibling"
+      }
+    ],
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.intellij.psi.impl.source.tree.CompositeElement",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.intellij.psi.impl.source.tree.LazyParseableElement",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.intellij.util.containers.ConcurrentLongObjectHashMap",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.intellij.psi.impl.source.tree.mvcc.VersionedPsiReference",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.intellij.codeInsight.multiverse.MultiverseEnabler",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.psi.LanguageSubstitutors",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.vfs.transformer.TextPresentationTransformers",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.workspaceModel.ide.impl.WorkspaceModelImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.codeInspection.ex.InspectionManagerEx",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.types.TypeEvalContextFactoryImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.PyLanguageFacadeImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.codeInsight.completion.FrontendFriendlyTailTypeFactory",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.editor.impl.LockFreeCOWSortedArray",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.intellij.openapi.editor.impl.RedBlackTree",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.jetbrains.python.inspections.PyInspectionExtension",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true,
+    "allDeclaredConstructors": true
+  }
+]

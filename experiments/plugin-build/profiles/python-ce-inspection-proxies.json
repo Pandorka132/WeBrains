@@ -1,0 +1,14 @@
+[
+  [
+    "com.intellij.openapi.vfs.VirtualFileListener"
+  ],
+  [
+    "com.intellij.openapi.fileEditor.impl.FileDocumentBindingListener"
+  ],
+  [
+    "com.intellij.openapi.roots.ProjectFileIndex"
+  ],
+  [
+    "com.intellij.platform.workspace.storage.WorkspaceEntity"
+  ]
+]

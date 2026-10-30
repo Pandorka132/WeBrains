@@ -1,0 +1,39 @@
+{
+  "id": "python-ce-unresolved-inspection-wasmgc",
+  "pluginId": "PythonCore",
+  "description": "Run the original Python CE unresolved-reference inspection against real PSI in WebAssembly GC.",
+  "entrypoint": "experiment.PythonInspectionProbe",
+  "imageName": "python-ce-unresolved-inspection",
+  "sourceFiles": [
+    "experiments/python-plugin/java-probes/experiment/PythonInspectionProbe.java",
+    "experiments/python-plugin/java-probes/experiment/PythonRegistryKeys.java"
+  ],
+  "pluginJarIncludes": [
+    "python-ce/lib/modules/*.jar",
+    "python-ce/lib/python-ce.jar"
+  ],
+  "platform": {
+    "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
+    "required": true,
+    "excludeJarNameContains": ["ijent", "netty", "sqlite"]
+  },
+  "reflectionConfig": "experiments/plugin-build/profiles/python-ce-inspection-reflection.json",
+  "imageOptions": [
+    "-H:+UnlockExperimentalVMOptions",
+    "--add-exports=java.base/sun.nio.fs=ALL-UNNAMED",
+    "-H:Backend=WASMGC",
+    "-H:WasmAsPath=experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as",
+    "-H:DynamicProxyConfigurationFiles=experiments/plugin-build/profiles/python-ce-inspection-proxies.json",
+    "-H:ConfigurationFileDirectories=experiments/plugin-build/profiles/python-ce-completion-metadata",
+    "-H:+AddAllCharsets",
+    "-H:IncludeResourceBundles=messages.PyParserBundle,localization//messages/PyParserBundle,messages.InspectionsBundle,localization//messages/InspectionsBundle",
+    "-H:IncludeResources=.*PyParserBundle.properties"
+  ],
+  "runtimeTest": {
+    "expectedOutput": "UNRESOLVED_REFERENCE_FOUND=true"
+  },
+  "notes": [
+    "Uses the original PyUnresolvedReferencesInspection and original Python PSI; no handwritten unresolved-name checker.",
+    "This harness is experimental and is not considered complete until unresolved and valid-name fixtures both pass."
+  ]
+}

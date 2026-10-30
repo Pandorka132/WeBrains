@@ -452,7 +452,7 @@ def build(args: argparse.Namespace) -> int:
         f"- Entry point: `{profile['entrypoint']}`\n"
         f"- JavaScript runtime wrapper: `web/{js_output.name}`\n"
         f"- WebAssembly module: `web/{wasm_output.name}`\n"
-        + (f"- Browser worker adapter: `web/{(web_dir / 'python-ce-lexer.worker.js').name}`\n" if profile.get("browserApi") else "")
+        + (f"- Browser worker adapter: `web/{profile.get('browserWorkerName', 'python-ce-lexer.worker.js')}`\n" if profile.get("browserApi") else "")
         + f"- Runtime assertion: `{expected or 'process exited successfully'}`\n\n"
         + "This result proves only the capability named by this profile; it does not claim the entire plugin is browser-compatible.\n",
         encoding="utf-8",
