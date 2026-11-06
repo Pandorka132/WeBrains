@@ -15,7 +15,7 @@ import { MessageBus, topic } from './messageBus.ts'
 import { LanguageRegistry } from './language.ts'
 import { PlatformModule, PlatformProject } from './project.ts'
 import { ProjectTemplateRegistry } from './projectTemplates.ts'
-import { editorLanguageServices, pluginRuntime, projectTemplates, runConfigurations } from '../plugin-system/builtinPlugins.ts'
+import { pluginRuntime, projectTemplates, runConfigurations } from '../plugin-system/builtinPlugins.ts'
 import { PluginRuntime } from '../plugin-system/runtime.ts'
 import { PluginCatalog } from '../plugin-system/plugins.ts'
 import { ServiceContainer, serviceKey } from './services.ts'
@@ -182,7 +182,7 @@ test('language registrations are immutable snapshots and can be disposed', () =>
 test('plugin runtime activates dependencies first and disposes plugin contributions in reverse order', () => {
   const runtime = new PluginRuntime()
   const calls: string[] = []
-  runtime.register({ manifest: { id: 'example.main', name: 'Main', version: '1', dependsOn: ['example.dep'] }, activate(context) {
+  runtime.register({ manifest: { id: 'example.main', name: 'Main', version: '1', kind: 'plugin', description: 'Main test plugin', icon: 'icons/main.svg', dependsOn: ['example.dep'] }, activate(context) {
     calls.push('main')
     context.register(() => calls.push('main-dispose'))
   } })
@@ -191,6 +191,9 @@ test('plugin runtime activates dependencies first and disposes plugin contributi
     context.register(() => calls.push('dependency-dispose'))
   } })
   assert.deepEqual(runtime.activateAll(), ['example.dep', 'example.main'])
+  assert.deepEqual(runtime.activeManifests().map(({ id }) => id), ['example.dep', 'example.main'])
+  assert.equal(runtime.activeManifests().find(({ id }) => id === 'example.main')?.description, 'Main test plugin')
+  assert.equal(runtime.activeManifests().find(({ id }) => id === 'example.main')?.icon, 'icons/main.svg')
   assert.deepEqual(calls, ['dependency', 'main'])
   runtime.register({ manifest: { id: 'late', name: 'Late', version: '1' }, activate(context) {
     calls.push('late')
@@ -292,7 +295,7 @@ test('stopping a foreground run aborts its executor and reports the stopped stat
   manager.dispose()
 })
 
-test('run configurations persist in the project filesystem and Python CE provides a pinned runnable type', async () => {
+test('Python run configuration validates and persists independently of plugin activation', async () => {
   const files = new MemoryFileSystem('project')
   files.writeText('main.py', 'print("hello")')
   const configuration = pythonRunConfigurationType.createDefault({ name: 'project', activeFile: 'main.py' })
@@ -318,7 +321,7 @@ test('run configurations persist in the project filesystem and Python CE provide
   const invalidModule = { ...moduleConfiguration, options: { ...moduleConfiguration.options, moduleName: '../bad' } }
   assert.ok((await pythonRunConfigurationType.validate(invalidModule, files)).some(({ field }) => field === 'moduleName'))
   assert.match(PYODIDE_VERSION, /^\d+\.\d+\.\d+$/)
-  assert.equal(runConfigurations.canCreateConfiguration(PYTHON_RUN_CONFIGURATION_ID), true)
+  assert.equal(runConfigurations.canCreateConfiguration(PYTHON_RUN_CONFIGURATION_ID), false, 'Python CE contributions are unavailable when the browser plugin artifacts are not part of this build')
   await writeRunConfigurations(files, [configuration])
   assert.deepEqual(await readRunConfigurations(files), [configuration])
 })
@@ -335,23 +338,16 @@ test('Python worker project snapshot never reads environment files', async () =>
   assert.deepEqual(progress, [1], 'the executor can report progress while reading project files')
 })
 
-test('bundled Python CE contribution registers project template, code style, and Enter handler', async () => {
-  assert.deepEqual(pluginRuntime.activePluginIds(), ['WebBrains', 'PythonCore'])
-  assert.equal(projectTemplates.find('python-ce.pure-python')?.pluginId, 'PythonCore')
+test('plugin runtime reports only active plugin manifests and excludes the WeBrains platform core', () => {
+  assert.deepEqual(pluginRuntime.activePluginIds(), ['WebBrains'])
+  assert.deepEqual(pluginRuntime.activeManifests().map(({ id }) => id), ['WebBrains'])
+  assert.equal(pluginRuntime.activeManifests()[0]?.kind, 'platform')
+  assert.equal(projectTemplates.find('python-ce.pure-python'), undefined)
   assert.equal(projectTemplates.find('webbrains.empty-project')?.pluginId, 'WebBrains')
   assert.equal(projectTemplates.find('webbrains.empty-project')?.files.length, 0)
-  assert.equal(pluginRuntime.fileTypes.find('python-ce.file-type')?.name, 'Python')
-  assert.equal(findFileType(pluginRuntime.fileTypes, '/project/main.py')?.languageId, 'python')
-  assert.equal(editorLanguageServices.forFileName('main.py')?.tabSize, 4)
-  assert.equal(typeof editorLanguageServices.forFileName('main.py')?.diagnose, 'function')
-  assert.deepEqual(editorLanguageServices.forFileName('main.py')?.autoClosingPairs?.map(({ open, close }) => `${open}${close}`), ['()', '[]', '{}', "''", '""'])
-  assert.deepEqual(pluginRuntime.editorCompletionContributors.forLanguage('python').map(({ id }) => id), ['python-ce.original-keyword-completion'])
-  const edit = pluginRuntime.editorKeyHandlers.dispatch({
-    key: 'Enter', filePath: 'main.py', source: 'if True:', caretOffset: 8,
-    selection: { startOffset: 8, endOffset: 8 }, shiftKey: false, indentSize: 4,
-  })
-  assert.equal(edit.text, '\n    ')
-  assert.equal(edit.selectionStart, 13)
+  assert.equal(pluginRuntime.catalog.find('PythonCore'), undefined)
+  assert.equal(pluginRuntime.fileTypes.find('python-ce.file-type'), undefined)
+  assert.deepEqual(pluginRuntime.editorCompletionContributors.forLanguage('python'), [])
 })
 
 test('plugin API delivers completion items from an activated plugin to the lookup request', async () => {

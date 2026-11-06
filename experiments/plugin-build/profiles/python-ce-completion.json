@@ -12,8 +12,10 @@
     "experiments/python-plugin/java-probes/experiment/PythonRegistryKeys.java"
   ],
   "pluginJarIncludes": [
-    "python-ce/lib/modules/*.jar",
-    "python-ce/lib/python-ce.jar"
+    "**/lib/modules/*.jar",
+    "lib/modules/*.jar",
+    "**/lib/python-ce.jar",
+    "lib/python-ce.jar"
   ],
   "platform": {
     "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
@@ -42,5 +44,7 @@
     "Runs the original Python CE keyword contributor against real Python PSI under Web Image WASM GC.",
     "The browser worker accepts source text and returns only items emitted by the original contributor.",
     "This profile covers keyword completion only; it does not claim unresolved-reference or import-member completion."
-  ]
+  ],
+  "batchEnabled": true,
+  "frontendEnabled": true
 }

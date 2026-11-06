@@ -126,5 +126,282 @@
     "allDeclaredFields": true,
     "allDeclaredMethods": true,
     "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.codeInsight.imports.PyImportCandidateProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.impl.ProjectRootManagerImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.workspaceModel.ide.impl.jps.serialization.JpsGlobalModelSynchronizerImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.impl.ProjectFileIndexImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.configurationStore.ApplicationStoreImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.configurationStore.ApplicationPathMacroManager",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.workspaceModel.ide.impl.legacyBridge.sdk.GlobalSdkTableBridgeRegistryImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.impl.libraries.LibraryTablesRegistrarImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.impl.DirectoryIndexExcludePolicy",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndexContributor",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.libraries.LibraryTablesRegistrar",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.libraries.CustomLibraryTableDescription",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.AdditionalLibraryRootsProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.roots.impl.DirectoryIndexImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.codeInsight.imports.CodeStylePyImportCollectorFactory",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.codeInsight.PyCodeInsightSettings",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.impl.smartPointers.SmartPointerAnchorProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.psi.impl.smartPointers.SmartPointerManagerImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.codeStyle.CodeStyleSettingsManager",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.codeStyle.FileIndentOptionsProvider",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.codeStyle.CodeStyleSettingsServiceImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProviderService",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.codeStyle.LanguageCodeStyleSettingsContributor"
+  },
+  {
+    "name": "com.intellij.application.options.codeStyle.cache.CodeStyleCachingServiceImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.workspaceModel.ide.impl.JpsProjectLoadingManagerImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.application.options.codeStyle.cache.TooFrequentCodeStyleComputationWatcher",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.configurationStore.schemeManager.ApplicationSchemeManagerFactory",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.impl.source.codeStyle.PersistableCodeStyleSchemes",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.application.options.PathMacrosImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.application.options.codeStyle.cache.CodeStyleCachedValueProviderService",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.application.impl.PlatformCoroutineSupport",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.codeStyle.modifier.CodeStyleSettingsModifier",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.formatter.PyLanguageCodeStyleSettingsProvider",
+    "methods": [
+      {
+        "name": "createConfigurable",
+        "parameterTypes": [
+          "com.intellij.psi.codeStyle.CodeStyleSettings",
+          "com.intellij.psi.codeStyle.CodeStyleSettings"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "com.intellij.psi.stubs.StubIndexExtension",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.util.indexing.FileBasedIndexExtension",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.util.indexing.storage.FileBasedIndexLayoutProviderBean",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.psi.stubs.StubElementTypeHolderEP",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.vfs.newvfs.persistent.PersistentFsConnectionListener",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.util.indexing.FileBasedIndexInfrastructureExtension",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.util.indexing.GlobalIndexFilter",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.vfs.AsyncFileListener",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.application.impl.AsyncExecutionServiceImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.stubs.StubUpdatableIndexFactoryImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.psi.stubs.StubTreeLoaderImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.util.indexing.memory.InMemoryStorageLayoutProvider",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.PyStubElementTypes",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyClassNameIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyClassNameIndexInsensitive",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyFunctionNameIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PySuperClassIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyVariableNameIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyDecoratorStubIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyClassAttributesIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyExportedModuleAttributeIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyTypeAliasNameIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PyModuleNameIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.stubs.PySetuptoolsNamespaceIndex",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.util.containers.ConcurrentIntObjectHashMap",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.openapi.application.impl.ModalityStateEx",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModelRegistry",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.workspaceModel.ide.legacyBridge.GlobalLibraryTableBridgeRegistry",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.intellij.util.KeyedLazyInstanceEP",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.openapi.vfs.impl.VirtualFileManagerImpl$VirtualFileSystemBean",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
   }
 ]

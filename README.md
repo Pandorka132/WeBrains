@@ -1,6 +1,6 @@
 # WebBrains
 
-WebBrains is a browser-first IDE experiment. The frontend is a static React application built with Vite and TypeScript; application code runs in the browser, without a Java backend.
+WebBrains is a browser-first IDE experiment. The frontend is a static React application built with Vite and TypeScript; application code runs in the browser, without ANY backend.
 
 ## Project layout
 
@@ -14,6 +14,7 @@ WebBrains is a browser-first IDE experiment. The frontend is a static React appl
 - `frontend/src/platform/` — browser-side, TypeScript-only foundations for selected IntelliJ Platform concepts.
 - `docs/` — architecture and development notes.
 - `scripts/` — project maintenance and build scripts, including the profile-driven JetBrains plugin build pipeline documented in [`experiments/plugin-build/README.md`](experiments/plugin-build/README.md).
+- `experiments/raw-plugins/` — original JetBrains plugin ZIP inputs; put one plugin ZIP per file here.
 - `experiments/python-plugin/` — active Python Community Edition compatibility investigation; start with [`docs/python-ce-roadmap.md`](docs/python-ce-roadmap.md) for current verified status and next steps.
 - `experiments/plugin-build/` — profile-driven plugin archive inspection and browser build/test pipeline.
 

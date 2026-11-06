@@ -36,12 +36,12 @@ class BrowserWrapperTests(unittest.TestCase):
             module.adapt_browser_wrapper(wrapper)
             generated = wrapper.read_text(encoding="utf-8")
 
-        self.assertIn("globalThis.__pythonCeStart = (source, caretOffset) =>", generated)
+        self.assertIn("globalThis.__webrainsStart = (source, caretOffset) =>", generated)
         self.assertIn("GraalVM.run(args, config)", generated)
         self.assertIn("Number.isInteger(caretOffset)", generated)
         self.assertIn("./python-ce-lexer.js.wasm", generated)
-        self.assertIn("globalThis.__pythonCeWasmModule instanceof WebAssembly.Module", generated)
-        self.assertIn("WebAssembly.instantiate(globalThis.__pythonCeWasmModule, wasmImports)", generated)
+        self.assertIn("globalThis.__webrainsWasmModule instanceof WebAssembly.Module", generated)
+        self.assertIn("WebAssembly.instantiate(globalThis.__webrainsWasmModule, wasmImports)", generated)
         self.assertIn('type: "complete"', generated)
         self.assertIn('typeof document === "undefined"', generated)
 

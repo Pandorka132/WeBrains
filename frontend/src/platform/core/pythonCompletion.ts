@@ -81,6 +81,7 @@ async function requestPythonCeCompletion(
   return new Promise<readonly EditorCompletionItem[]>((resolve, reject) => {
     const onAbort = () => {
       pendingCompletions.delete(requestId)
+      worker.postMessage({ type: 'cancel', requestId })
       resolve([])
     }
     const pending: PendingCompletion = { resolve, reject, signal, onAbort }

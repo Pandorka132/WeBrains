@@ -38,6 +38,7 @@ export function LandingPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const refreshGeneration = useRef(0)
+  const loadedPlugins = pluginRuntime.activeManifests().filter((manifest) => manifest.kind !== 'platform')
 
   const refresh = useCallback(async () => {
     const generation = ++refreshGeneration.current
@@ -199,13 +200,22 @@ export function LandingPage() {
       </section>
       {pluginManagerOpen && <div className="modal-backdrop plugin-manager-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPluginManagerOpen(false) }}>
         <section className="plugin-manager-dialog" role="dialog" aria-modal="true" aria-labelledby="plugin-manager-title">
-          <header className="plugin-manager-header"><div><div className="dialog-kicker">EXTEND YOUR WORKSPACE</div><h2 id="plugin-manager-title">Plugin manager</h2><p>See which capabilities are currently bundled with WeBrains.</p></div><button type="button" className="plugin-manager-close" aria-label="Close plugin manager" onClick={() => setPluginManagerOpen(false)}>×</button></header>
+          <header className="plugin-manager-header"><div><div className="dialog-kicker">EXTEND YOUR WORKSPACE</div><h2 id="plugin-manager-title">Plugin manager</h2><p>Only plugins successfully activated in this build are listed here.</p></div><button type="button" className="plugin-manager-close" aria-label="Close plugin manager" onClick={() => setPluginManagerOpen(false)}>×</button></header>
           <div className="plugin-manager-search"><span aria-hidden="true">⌕</span><input value={pluginQuery} onChange={(event) => setPluginQuery(event.target.value)} placeholder="Find a plugin…" aria-label="Find a plugin" /></div>
-          <div className="plugin-manager-section-label">INSTALLED IN THIS BUILD <span>{pluginRuntime.catalog.all().length}</span></div>
-          <div className="plugin-manager-list">{pluginRuntime.catalog.all().filter((plugin) => `${plugin.name} ${plugin.id}`.toLowerCase().includes(pluginQuery.toLowerCase())).map((plugin) => {
-            const active = pluginRuntime.activePluginIds().includes(plugin.id)
-            return <article className="plugin-manager-item" key={plugin.id}><span className={`plugin-manager-icon ${plugin.id === 'PythonCore' ? 'plugin-python-icon' : ''}`}>{plugin.id === 'PythonCore' ? 'Py' : 'W'}</span><span className="plugin-manager-copy"><strong>{plugin.name}</strong><small>{plugin.id} · Version {plugin.version}</small></span><span className={`plugin-state ${active ? 'plugin-state-active' : ''}`}><i />{active ? 'Enabled' : 'Inactive'}</span></article>
-          })}{pluginRuntime.catalog.all().filter((plugin) => `${plugin.name} ${plugin.id}`.toLowerCase().includes(pluginQuery.toLowerCase())).length === 0 && <div className="plugin-manager-empty">No bundled plugins match “{pluginQuery}”.</div>}</div>
+          <div className="plugin-manager-section-label">LOADED PLUGINS <span>{loadedPlugins.length}</span></div>
+          <div className="plugin-manager-list">{loadedPlugins.filter((plugin) => `${plugin.name} ${plugin.id} ${plugin.description ?? ''}`.toLowerCase().includes(pluginQuery.toLowerCase())).map((plugin) => (
+            <article className="plugin-manager-item" key={plugin.id}>
+              {plugin.icon
+                ? <img className="plugin-manager-icon" src={`${import.meta.env.BASE_URL}${plugin.icon}`} alt="" aria-hidden="true" />
+                : <span className="plugin-manager-icon" aria-hidden="true">◈</span>}
+              <span className="plugin-manager-copy"><strong>{plugin.name}</strong><small>{plugin.id} · Version {plugin.version}</small><span className="plugin-manager-description">{plugin.description}</span></span>
+              <span className="plugin-state plugin-state-active"><i />Loaded</span>
+            </article>
+          ))}{loadedPlugins.length === 0
+            ? <div className="plugin-manager-empty">No plugins are loaded in this build. A plugin appears here only after its browser runtime has been built and activated.</div>
+            : loadedPlugins.filter((plugin) => `${plugin.name} ${plugin.id} ${plugin.description ?? ''}`.toLowerCase().includes(pluginQuery.toLowerCase())).length === 0
+              ? <div className="plugin-manager-empty">No loaded plugins match “{pluginQuery}”.</div>
+              : null}</div>
           <div className="plugin-manager-roadmap"><div className="roadmap-icon">✦</div><div><span className="roadmap-label">ON THE ROADMAP</span><strong>JetBrains plugin compatibility</strong><p>Direct support for plugins built for JetBrains IDEs is a core long-term goal for WeBrains. Existing JetBrains plugins cannot be installed here yet.</p></div><span className="roadmap-badge">Planned</span></div>
           <footer className="plugin-manager-footer"><span>Plugin marketplace and external plugin installation are not available yet.</span><button type="button" className="secondary-button" onClick={() => setPluginManagerOpen(false)}>Close</button></footer>
         </section>

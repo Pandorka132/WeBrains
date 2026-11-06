@@ -2551,19 +2551,21 @@
 .landing-page .plugin-manager-section-label span { display:grid; place-items:center; min-width:18px; height:18px; border-radius:5px; background:#303a49; color:#bdcce2; font-size:9px; }
 .landing-page .plugin-manager-list { padding:0 24px; }
 .landing-page .plugin-manager-item {
-  display:flex; align-items:center; gap:12px; min-height:66px; padding:10px 12px;
+  display:flex; align-items:flex-start; gap:12px; min-height:66px; padding:12px;
   border:1px solid #343d49; border-radius:8px; background:#252b35;
 }
+.landing-page .plugin-manager-item > .plugin-manager-icon { margin-top:1px; }
 .landing-page .plugin-manager-item + .plugin-manager-item { margin-top:7px; }
 .landing-page .plugin-manager-icon {
   display:grid; place-items:center; width:36px; height:36px; flex:none; border-radius:9px;
   background:linear-gradient(145deg,#5489ce,#36568c); color:white; font-size:15px; font-weight:750;
 }
-.landing-page .plugin-python-icon { background:linear-gradient(145deg,#e2c75c,#427ab5); color:#172333; }
 .landing-page .plugin-manager-copy { display:flex; flex:1; min-width:0; flex-direction:column; gap:5px; }
 .landing-page .plugin-manager-copy strong { color:#e1e7f0; font-size:12px; font-weight:600; }
+.landing-page .plugin-manager-icon[src] { padding:2px; background:transparent; object-fit:contain; }
 .landing-page .plugin-manager-copy small { color:#8996a8; font-size:10px; }
-.landing-page .plugin-state { display:flex; align-items:center; gap:7px; color:#a2a9b5; font-size:10px; }
+.landing-page .plugin-manager-description { color:#aab3c1; font-size:10px; line-height:1.5; }
+.landing-page .plugin-state { display:flex; align-items:center; gap:7px; flex:none; color:#a2a9b5; font-size:10px; }
 .landing-page .plugin-state i { width:6px; height:6px; border-radius:50%; background:#747e8e; }
 .landing-page .plugin-state-active { color:#9bd5ac; }
 .landing-page .plugin-state-active i { background:#6bc58a; box-shadow:0 0 9px #6bc58a66; }

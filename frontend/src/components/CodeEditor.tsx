@@ -5,6 +5,8 @@ import { collectInspectionDiagnostics } from '../platform/core/extensionApis.ts'
 import type { EditorCompletionItem, EditorDiagnostic } from '../platform/core/editorServices.ts'
 import { resolveAutoClosingPair } from '../platform/core/editorTyping.ts'
 import { resolveCompletionEdit } from '../platform/core/editorCompletion.ts'
+import { tokenizePython } from '../platform/core/pythonLexer.ts'
+import type { PythonLexerToken } from '../platform/core/pythonLexer.ts'
 
 interface CodeEditorProps {
   filePath: string
@@ -18,35 +20,9 @@ interface CodeEditorProps {
 const tokenPattern = /(?:\/\/.*|\b(?:import|from|export|function|const|let|return|if|throw|new|class|async|await|default|interface|type)\b|\b(?:true|false|null|undefined)\b|\b\d+\b|(['"`])(?:\\.|(?!\1)[^\\])*?\1|=>)/g
 const pythonTokenPattern = /(?:#.*|\b(?:def|return|if|elif|else|for|while|in|not|and|or|is|import|from|as|class|try|except|finally|with|pass|break|continue|lambda|yield|async|await|raise|assert|global|nonlocal|del|match|case)\b|\b(?:True|False|None)\b|\b\d+\b|(['"])(?:\\.|(?!\1)[^\\])*?\1)/g
 
-interface PythonLexerToken {
-  type: string
-  start: number
-  end: number
-  text: string
-}
-
 interface PythonLexerResult {
   source: string
-  tokens: PythonLexerToken[]
-}
-
-let pythonWasmModulePromise: Promise<WebAssembly.Module> | null = null
-
-function loadPythonWasmModule(): Promise<WebAssembly.Module> {
-  if (!pythonWasmModulePromise) {
-    const wasmUrl = `${import.meta.env.BASE_URL}plugins/pythoncore/python-ce-lexer.js.wasm`
-    pythonWasmModulePromise = fetch(wasmUrl)
-      .then((response) => {
-        if (!response.ok) throw new Error(`Failed to load Python lexer WASM: HTTP ${response.status}`)
-        return response.arrayBuffer()
-      })
-      .then((bytes) => WebAssembly.compile(bytes))
-      .catch((error) => {
-        pythonWasmModulePromise = null
-        throw error
-      })
-  }
-  return pythonWasmModulePromise
+  tokens: readonly PythonLexerToken[]
 }
 
 function pythonTokenClass(type: string): string | undefined {
@@ -136,8 +112,6 @@ function highlightLine(line: string, isPython: boolean, pythonTokens?: readonly 
 export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnosticsChange, diagnosticNavigation }: CodeEditorProps) {
   const textarea = useRef<HTMLTextAreaElement>(null)
   const completionPopup = useRef<HTMLDivElement>(null)
-  const nextRequestId = useRef(0)
-  const latestRequestId = useRef(0)
   const lastDiagnosticNavigationId = useRef(0)
   const [pythonLexResult, setPythonLexResult] = useState<PythonLexerResult | null>(null)
   const [languageDiagnostics, setLanguageDiagnostics] = useState<{ source: string; languageId: string; items: readonly EditorDiagnostic[] } | null>(null)
@@ -157,7 +131,8 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnos
     lineOffsets.push(currentOffset)
     currentOffset += line.length + 1
   }
-  const isPython = filePath.endsWith('.py') || filePath.endsWith('.pyi')
+  const isPython = pluginRuntime.activePluginIds().includes('PythonCore')
+    && (filePath.endsWith('.py') || filePath.endsWith('.pyi'))
   const editorLanguageService = editorLanguageServices.forFileName(filePath)
   const activePythonTokens = isPython && pythonLexResult?.source === value ? pythonLexResult.tokens : undefined
   const activeLanguageDiagnostics = useMemo(() => languageDiagnostics?.source === value && languageDiagnostics.languageId === editorLanguageService?.id ? languageDiagnostics.items : [], [languageDiagnostics, value, editorLanguageService?.id])
@@ -187,39 +162,17 @@ export function CodeEditor({ filePath, value, onChange, onCaretChange, onDiagnos
 
   useEffect(() => {
     if (!isPython) return
-    const requestId = ++nextRequestId.current
-    latestRequestId.current = requestId
-    let worker: Worker | null = null
-    let cancelled = false
+    const controller = new AbortController()
     const debounce = window.setTimeout(() => {
-      void loadPythonWasmModule().then((wasmModule) => {
-        if (cancelled || requestId !== latestRequestId.current) return
-        worker = new Worker(`${import.meta.env.BASE_URL}plugins/pythoncore/python-ce-lexer.worker.js`, { name: 'python-ce-lexer' })
-        worker.onmessage = (event: MessageEvent<{ type?: string; requestId?: number | null; tokens?: PythonLexerToken[]; message?: string }>) => {
-          const message = event.data
-          if (message.requestId !== requestId || requestId !== latestRequestId.current) return
-          if (message.type === 'tokens' && message.tokens) {
-            setPythonLexResult({ source: value, tokens: message.tokens })
-            worker?.terminate()
-            worker = null
-          } else if (message.type === 'error') {
-            worker?.terminate()
-            worker = null
-          }
-        }
-        worker.onerror = () => {
-          worker?.terminate()
-          worker = null
-        }
-        worker.postMessage({ type: 'tokenize', requestId, source: value, wasmModule })
+      void tokenizePython(value, controller.signal).then((tokens) => {
+        if (!controller.signal.aborted) setPythonLexResult({ source: value, tokens })
       }).catch((error: unknown) => {
-        if (!cancelled) console.error('Python CE lexer could not initialize:', error)
+        if (!controller.signal.aborted) console.error('Python CE lexer could not initialize:', error)
       })
     }, 100)
     return () => {
-      cancelled = true
       window.clearTimeout(debounce)
-      worker?.terminate()
+      controller.abort()
     }
   }, [isPython, value])
 

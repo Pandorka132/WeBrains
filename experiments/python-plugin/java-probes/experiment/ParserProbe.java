@@ -55,6 +55,10 @@ public final class ParserProbe {
         System.out.println("PARSER_OK errors=" + errors.size());
     }
 
+    private static String jsonEscape(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    }
+
     private static void collect(ASTNode node, String source, List<String> errors) {
         if (node.getElementType() == TokenType.ERROR_ELEMENT) {
             if (source.isEmpty()) return;
@@ -64,7 +68,10 @@ public final class ParserProbe {
                 if (start == source.length()) start--;
                 end = start + 1;
             }
-            String error = String.format("{\"start\":%d,\"end\":%d,\"message\":\"Syntax error\"}", start, end);
+            String message = node.getPsi() instanceof com.intellij.psi.PsiErrorElement errorElement
+                    ? errorElement.getErrorDescription() : null;
+            if (message == null || message.isBlank()) message = "Syntax error";
+            String error = String.format("{\"start\":%d,\"end\":%d,\"message\":\"%s\"}", start, end, jsonEscape(message));
             if (!errors.contains(error)) errors.add(error);
         }
         for (ASTNode child = node.getFirstChildNode(); child != null; child = child.getTreeNext()) collect(child, source, errors);

@@ -1,39 +1,62 @@
 {
-  "id": "python-ce-unresolved-inspection-wasmgc",
+  "id": "python-ce-unresolved-inspection-wasmlm",
   "pluginId": "PythonCore",
-  "description": "Run the original Python CE unresolved-reference inspection against real PSI in WebAssembly GC.",
+  "description": "Run the original Python CE unresolved-reference inspection against real PSI in WebAssembly linear memory.",
   "entrypoint": "experiment.PythonInspectionProbe",
-  "imageName": "python-ce-unresolved-inspection",
+  "imageName": "python-ce-inspection-indexed-wasmlm",
   "sourceFiles": [
     "experiments/python-plugin/java-probes/experiment/PythonInspectionProbe.java",
-    "experiments/python-plugin/java-probes/experiment/PythonRegistryKeys.java"
+    "experiments/python-plugin/java-probes/experiment/PythonRegistryKeys.java",
+    "experiments/python-plugin/java-probes/experiment/PythonWasmTestDispatchers.java",
+    "experiments/python-plugin/java-probes/experiment/PythonWasmTestIndexing.java"
+  ],
+  "compileClasspath": [
+    "experiments/python-plugin/artifacts/.tools/graalvm-source/sdk/mxbuild/jdk25/dists/jdk11/nativeimage.jar"
   ],
   "pluginJarIncludes": [
-    "python-ce/lib/modules/*.jar",
-    "python-ce/lib/python-ce.jar"
+    "**/lib/modules/*.jar",
+    "lib/modules/*.jar",
+    "**/lib/python-ce.jar",
+    "lib/python-ce.jar"
   ],
   "platform": {
     "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
     "required": true,
-    "excludeJarNameContains": ["ijent", "netty", "sqlite"]
+    "excludeJarNameContains": [
+      "ijent",
+      "netty",
+      "sqlite"
+    ]
   },
   "reflectionConfig": "experiments/plugin-build/profiles/python-ce-inspection-reflection.json",
   "imageOptions": [
     "-H:+UnlockExperimentalVMOptions",
+    "-H:-VectorAPISupport",
+    "-H:+SharedArenaSupport",
     "--add-exports=java.base/sun.nio.fs=ALL-UNNAMED",
-    "-H:Backend=WASMGC",
+    "-Didea.system.path=/tmp/webrains-idea-system",
+    "-Djava.awt.headless=true",
+    "--add-opens=java.base/java.lang=ALL-UNNAMED",
+    "-H:Backend=WASM",
     "-H:WasmAsPath=experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as",
     "-H:DynamicProxyConfigurationFiles=experiments/plugin-build/profiles/python-ce-inspection-proxies.json",
     "-H:ConfigurationFileDirectories=experiments/plugin-build/profiles/python-ce-completion-metadata",
     "-H:+AddAllCharsets",
-    "-H:IncludeResourceBundles=messages.PyParserBundle,localization//messages/PyParserBundle,messages.InspectionsBundle,localization//messages/InspectionsBundle",
+    "-H:IncludeResourceBundles=messages.PyParserBundle,localization//messages/PyParserBundle,messages.PyPsiBundle,localization//messages/PyPsiBundle,messages.InspectionsBundle,localization//messages/InspectionsBundle,sun.awt.resources.awt",
     "-H:IncludeResources=.*PyParserBundle.properties"
   ],
   "runtimeTest": {
-    "expectedOutput": "UNRESOLVED_REFERENCE_FOUND=true"
+    "expectedOutput": "INSPECTION_JSON:[{\"startOffset\":3,\"endOffset\":6,\"message\":\"Unresolved reference 'Tru'\"}]"
   },
   "notes": [
-    "Uses the original PyUnresolvedReferencesInspection and original Python PSI; no handwritten unresolved-name checker.",
-    "This harness is experimental and is not considered complete until unresolved and valid-name fixtures both pass."
-  ]
+    "Runs the original Python CE PyUnresolvedReferencesInspection against real Python PSI in WebAssembly linear memory.",
+    "The browser worker receives source snapshots and returns the original inspection problem ranges and descriptions.",
+    "No handwritten unresolved-name checker or custom Python resolver is used.",
+    "The WASM artifact is large; measure browser download, compilation, and per-edit latency before treating this capability as production-ready."
+  ],
+  "batchEnabled": true,
+  "frontendEnabled": true,
+  "browserApi": true,
+  "browserWorkerTemplate": "experiments/plugin-build/templates/python-ce-inspection.worker.js",
+  "browserWorkerName": "python-ce-inspection.worker.js"
 }

@@ -8,9 +8,22 @@ export interface BrowserPluginManifest {
   readonly id: string
   readonly name: string
   readonly version: string
+  readonly kind?: 'platform' | 'plugin'
+  readonly description?: string
+  readonly vendor?: string
+  /** Public asset path relative to the app base URL. */
+  readonly icon?: string
+  readonly capabilities?: readonly BrowserPluginCapabilityManifest[]
   readonly dependsOn?: readonly string[]
   /** IntelliJ module ids that an adapter for this plugin expects to exist. */
   readonly platformModules?: readonly string[]
+}
+
+export interface BrowserPluginCapabilityManifest {
+  readonly id: string
+  readonly description?: string
+  readonly entrypoint: string
+  readonly assets: readonly string[]
 }
 
 export interface PluginDependencyIssue {

@@ -5,12 +5,17 @@
   "entrypoint": "experiment.LexerProbe",
   "imageName": "python-ce-lexer",
   "browserApi": true,
+  "browserWorkerTemplate": "experiments/plugin-build/templates/python-ce-lexer.worker.js",
+  "browserWorkerName": "python-ce-lexer.worker.js",
+  "default": true,
   "sourceFiles": [
     "experiments/python-plugin/java-probes/experiment/LexerProbe.java"
   ],
   "pluginJarIncludes": [
-    "python-ce/lib/modules/*.jar",
-    "python-ce/lib/python-ce.jar"
+    "**/lib/modules/*.jar",
+    "lib/modules/*.jar",
+    "**/lib/python-ce.jar",
+    "lib/python-ce.jar"
   ],
   "platform": {
     "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
@@ -34,5 +39,7 @@
     "This profile proves lexer execution only; it does not compile or load the full Python CE plugin.",
     "Do not remove platform exclusions without checking the corresponding GraalVM build-time initialization failures.",
     "The reflection metadata is required by the tested GraalVM Web Image closed-world configuration."
-  ]
+  ],
+  "batchEnabled": true,
+  "frontendEnabled": true
 }

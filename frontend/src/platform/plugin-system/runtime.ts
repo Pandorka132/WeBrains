@@ -145,6 +145,12 @@ export class PluginRuntime implements Disposable {
 
   activePluginIds(): readonly string[] { return [...this.activeScopes.keys()] }
 
+  activeManifests(): readonly BrowserPluginManifest[] {
+    return [...this.activeScopes.keys()]
+      .map((id) => this.catalog.find(id))
+      .filter((manifest): manifest is BrowserPluginManifest => manifest !== undefined)
+  }
+
   private activatePlugin(plugin: BrowserPluginModule): void {
     const manifest = this.catalog.find(plugin.manifest.id)
     if (!manifest) throw new Error(`Plugin is not registered: ${plugin.manifest.id}`)

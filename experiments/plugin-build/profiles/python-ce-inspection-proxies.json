@@ -10,5 +10,11 @@
   ],
   [
     "com.intellij.platform.workspace.storage.WorkspaceEntity"
+  ],
+  [
+    "com.intellij.openapi.vfs.pointers.VirtualFilePointerContainer"
+  ],
+  [
+    "com.intellij.psi.codeStyle.CodeStyleSettingsListener"
   ]
 ]

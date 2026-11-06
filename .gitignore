@@ -2,6 +2,7 @@
 frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
+frontend/public/icons/plugins/
 
 # Local environment files (never commit secrets)
 .env
@@ -26,7 +27,11 @@ __pycache__/
 
 # Generated JetBrains plugin-to-browser build runs
 experiments/plugin-builds/
+experiments/plugin-build/cache/
 frontend/public/plugins/
+
+# Original plugin ZIP inputs are local binaries and must not be committed.
+experiments/raw-plugins/*.zip
 
 # Third-party IntelliJ IDEA / IntelliJ Platform distributions and source checkouts.
 # Keep these local: the public project must not redistribute closed/commercial
@@ -41,6 +46,7 @@ intellij-community/
 # Original Python Community Edition plugin distribution and extracted artifacts.
 experiments/python-plugin/python-ce-*.zip
 experiments/python-plugin/artifacts/
+experiments/python-plugin/extracted-distribution/
 **/python-ce/lib/
 **/python-ce/helpers/
 

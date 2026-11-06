@@ -11,8 +11,10 @@
     "experiments/python-plugin/java-probes/experiment/ParserProbe.java"
   ],
   "pluginJarIncludes": [
-    "python-ce/lib/modules/*.jar",
-    "python-ce/lib/python-ce.jar"
+    "**/lib/modules/*.jar",
+    "lib/modules/*.jar",
+    "**/lib/python-ce.jar",
+    "lib/python-ce.jar"
   ],
   "platform": {
     "jarDirectory": "experiments/python-plugin/artifacts/.tools/idea-platform",
@@ -39,5 +41,7 @@
     "It registers only the extension point currently required by lexer initialization. Further platform extension points or services may be required as initialization progresses.",
     "Do not add handwritten syntax parsing or fake IntelliJ services to make this profile pass.",
     "Keep the matching IntelliJ platform and Python CE artifacts at the same build version."
-  ]
+  ],
+  "batchEnabled": true,
+  "frontendEnabled": true
 }

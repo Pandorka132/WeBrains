@@ -1,7 +1,7 @@
-/* Run the original Python CE keyword contributor in a worker for each lookup request. */
+/* Run the original Python CE keyword contributor in one persistent worker. */
 let activeRequestId = null;
 let running = false;
-const pendingRequests = [];
+let queuedRequest = null;
 const nativeLog = console.log.bind(console);
 
 console.log = (...values) => {
@@ -29,15 +29,15 @@ console.log = (...values) => {
 };
 
 async function drainQueue() {
-  if (running || typeof globalThis.__pythonCeStart !== "function") return;
-  const request = pendingRequests.shift();
-  if (!request) return;
+  if (running || !queuedRequest || typeof globalThis.__webrainsStart !== "function") return;
+  const request = queuedRequest;
+  queuedRequest = null;
   running = true;
   activeRequestId = request.requestId;
-  globalThis.__pythonCeRequestId = request.requestId;
-  globalThis.__pythonCeWasmModule = request.wasmModule;
+  globalThis.__webrainsRequestId = request.requestId;
+  globalThis.__webrainsWasmModule = request.wasmModule;
   try {
-    await globalThis.__pythonCeStart(request.source, request.caretOffset);
+    await globalThis.__webrainsStart(request.source, request.caretOffset);
   } catch (error) {
     self.postMessage({ type: "error", requestId: request.requestId, message: String(error) });
   } finally {
@@ -48,14 +48,20 @@ async function drainQueue() {
 
 self.onmessage = (event) => {
   const message = event.data;
+  if (message?.type === "cancel" && Number.isInteger(message.requestId)) {
+    if (queuedRequest?.requestId === message.requestId) queuedRequest = null;
+    return;
+  }
   if (message?.type !== "complete" || typeof message.source !== "string"
-      || !Number.isInteger(message.caretOffset) || !(message.wasmModule instanceof WebAssembly.Module)) return;
-  pendingRequests.push({
+      || !Number.isInteger(message.requestId) || !Number.isInteger(message.caretOffset)
+      || !(message.wasmModule instanceof WebAssembly.Module)) return;
+  // Completion is latency-sensitive: discard obsolete waiting lookups when the prefix changes.
+  queuedRequest = {
     requestId: message.requestId,
     source: message.source,
     caretOffset: message.caretOffset,
     wasmModule: message.wasmModule,
-  });
+  };
   void drainQueue();
 };
 

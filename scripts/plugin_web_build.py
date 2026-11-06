@@ -20,9 +20,9 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_DIR = ROOT / "experiments" / "plugin-build" / "profiles"
 DEFAULT_OUTPUT = ROOT / "experiments" / "plugin-builds"
-DEFAULT_CACHE = ROOT / "experiments" / "python-plugin" / "artifacts" / ".tools" / "plugin-build-cache"
-DEFAULT_PLATFORM = ROOT / "experiments" / "python-plugin" / "artifacts" / ".tools" / "idea-platform"
-DEFAULT_GRAAL_BUILD = ROOT / "experiments" / "python-plugin" / "artifacts" / ".tools" / "graalvm-build-output-master"
+DEFAULT_CACHE = ROOT / "experiments" / "plugin-build" / "cache"
+DEFAULT_PLATFORM = ROOT / "experiments" / "plugin-build" / "platform-jars"
+DEFAULT_GRAAL_BUILD = ROOT / "experiments" / "plugin-build" / "tools" / "graalvm-build-output"
 ACTIVE_OUTPUT: Path | None = None
 
 
@@ -141,9 +141,8 @@ def load_profile(profile_arg: str | None, plugin: dict[str, Any]) -> tuple[dict[
             matches.append((profile, path.resolve()))
     if not matches:
         return None, None
-    # Preserve the existing default frontend-install workflow when several experimental
-    # capabilities have profiles for the same plugin. New probes must be selected explicitly.
-    default = next((match for match in matches if match[0].get("id") == "python-ce-lexer-wasmgc"), None)
+    # Profiles may designate one default capability for direct single-archive builds.
+    default = next((match for match in matches if match[0].get("default") is True), None)
     return default or matches[0]
 
 
@@ -223,7 +222,13 @@ def resolve_javac(cli_value: str | None, profile: dict[str, Any], jdk_home: Path
     raise BuildError("javac not found. Set JAVA_HOME or pass --javac.")
 
 
-def classpath_for(profile: dict[str, Any], extracted_jars: list[Path], output: Path) -> list[Path]:
+def classpath_for(
+    profile: dict[str, Any],
+    extracted_jars: list[Path],
+    output: Path,
+    *,
+    include_compile_classpath: bool = False,
+) -> list[Path]:
     entries: list[Path] = [*extracted_jars]
     platform = profile.get("platform", {})
     platform_dir = Path(platform.get("jarDirectory", str(DEFAULT_PLATFORM))).expanduser()
@@ -237,6 +242,14 @@ def classpath_for(profile: dict[str, Any], extracted_jars: list[Path], output: P
             jar for jar in sorted(platform_dir.glob("*.jar"))
             if not any(fragment in jar.name.lower() for fragment in excludes)
         )
+    if include_compile_classpath:
+        for configured in profile.get("compileClasspath", []):
+            extra = Path(configured).expanduser()
+            if not extra.is_absolute():
+                extra = ROOT / extra
+            if not extra.is_file():
+                raise BuildError(f"Required compile classpath entry is missing: {extra}")
+            entries.append(extra)
     entries.append(output / "classes")
     # Stable order and path deduplication matter for repeatable class resolution.
     seen: set[str] = set()
@@ -261,12 +274,12 @@ def run_command(command: list[str], cwd: Path, log_path: Path, env: dict[str, st
 
 
 def adapt_browser_wrapper(js_path: Path) -> None:
-    """Expose tokenization and accept a precompiled WASM module in browser workers."""
+    """Expose a browser-callable text capability and accept a precompiled WASM module."""
     source = js_path.read_text(encoding="utf-8")
     new_instantiate = '''async function wasmInstantiate(config, args) {
     let instance;
-    if (globalThis.__pythonCeWasmModule instanceof WebAssembly.Module) {
-        instance = await WebAssembly.instantiate(globalThis.__pythonCeWasmModule, wasmImports);
+    if (globalThis.__webrainsWasmModule instanceof WebAssembly.Module) {
+        instance = await WebAssembly.instantiate(globalThis.__webrainsWasmModule, wasmImports);
     } else {
         const wasmPath = config.wasm_path || runtime.getCurrentFile() + ".wasm";
         const file = await runtime.fetchData(wasmPath);
@@ -282,8 +295,8 @@ def adapt_browser_wrapper(js_path: Path) -> None:
     if replacements != 1:
         raise BuildError("Generated Web Image wrapper has an unexpected WASM-instantiation layout; browser module cache patch was not applied.")
     old_tail = '''const config = new GraalVM.Config();\nGraalVM.run(load_cmd_args(),config).catch(e => { console.error(e); throw e; });\n})();'''
-    new_tail = '''const config = new GraalVM.Config();\nif (typeof self === \"object\" && typeof self.location === \"object\") {\n    config.wasm_path = new URL(\"./python-ce-lexer.js.wasm\", self.location.href).href;\n}\nglobalThis.__pythonCeStart = (source, caretOffset) => {\n    if (typeof source !== \"string\") {\n        throw new TypeError(\"Python source must be a string\");\n    }\n    const args = Number.isInteger(caretOffset) ? [source, String(caretOffset)] : [source];\n    return GraalVM.run(args, config).then(() => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"complete\", requestId: globalThis.__pythonCeRequestId });\n        }\n    }).catch(error => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"error\", requestId: globalThis.__pythonCeRequestId, message: String(error) });\n        }\n        throw error;\n    });\n};\nif (!(typeof document === \"undefined\" && typeof self === \"object\" && typeof self.postMessage === \"function\")) {\n    GraalVM.run(load_cmd_args(), config).catch(error => { console.error(error); throw error; });\n}\n})();'''
-    new_tail = new_tail.replace("python-ce-lexer.js.wasm", f"{js_path.name}.wasm")
+    new_tail = '''const config = new GraalVM.Config();\nif (typeof self === \"object\" && typeof self.location === \"object\") {\n    config.wasm_path = new URL(\"./capability.js.wasm\", self.location.href).href;\n}\nglobalThis.__webrainsStart = (source, caretOffset) => {\n    if (typeof source !== \"string\") {\n        throw new TypeError(\"Capability source must be a string\");\n    }\n    const args = Number.isInteger(caretOffset) ? [source, String(caretOffset)] : [source];\n    return GraalVM.run(args, config).then(() => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"complete\", requestId: globalThis.__webrainsRequestId });\n        }\n    }).catch(error => {\n        if (typeof self === \"object\" && typeof self.postMessage === \"function\") {\n            self.postMessage({ type: \"error\", requestId: globalThis.__webrainsRequestId, message: String(error) });\n        }\n        throw error;\n    });\n};\nif (!(typeof document === \"undefined\" && typeof self === \"object\" && typeof self.postMessage === \"function\")) {\n    GraalVM.run(load_cmd_args(), config).catch(error => { console.error(error); throw error; });\n}\n})();'''
+    new_tail = new_tail.replace("capability.js.wasm", f"{js_path.name}.wasm")
     if source.count(old_tail) != 1:
         raise BuildError("Generated Web Image wrapper has an unexpected entry-point layout; browser API patch was not applied.")
     js_path.write_text(source.replace(old_tail, new_tail, 1), encoding="utf-8")
@@ -343,7 +356,7 @@ def build(args: argparse.Namespace) -> int:
         return 0
 
     include_globs = profile.get("pluginJarIncludes", ["**/*.jar"])
-    plugin_cache = DEFAULT_CACHE / report["archiveSha256"] / "plugin-jars"
+    plugin_cache = DEFAULT_CACHE / report["archiveSha256"] / "nested-jars"
     plugin_jars = extract_plugin_jars(archive, plugin_cache, include_globs)
     source_files = profile.get("sourceFiles", [])
     if not source_files:
@@ -366,6 +379,10 @@ def build(args: argparse.Namespace) -> int:
 
     classpath = classpath_for(profile, plugin_jars, output)
     classpath_text = os.pathsep.join(str(item) for item in classpath)
+    compile_classpath = classpath_for(
+        profile, plugin_jars, output, include_compile_classpath=True
+    )
+    compile_classpath_text = os.pathsep.join(str(item) for item in compile_classpath)
     classes = output / "classes"
     classes.mkdir()
     jdk_home = resolve_jdk(args.jdk, profile)
@@ -374,7 +391,7 @@ def build(args: argparse.Namespace) -> int:
     if jdk_home:
         java_env["JAVA_HOME"] = str(jdk_home)
         java_env["PATH"] = str(jdk_home / "bin") + os.pathsep + java_env.get("PATH", "")
-    run_command([str(javac), "-proc:none", "-encoding", "UTF-8", "-cp", classpath_text, "-d", str(classes), *map(str, copied_sources)], ROOT, output / "reports" / "javac.log", java_env)
+    run_command([str(javac), "-proc:none", "-encoding", "UTF-8", "-cp", compile_classpath_text, "-d", str(classes), *map(str, copied_sources)], ROOT, output / "reports" / "javac.log", java_env)
 
     web_image = resolve_graal(profile, args.web_image)
     reflection_config = profile.get("reflectionConfig")
@@ -409,11 +426,12 @@ def build(args: argparse.Namespace) -> int:
     shutil.copy2(compiled_wasm, wasm_output)
     if profile.get("browserApi"):
         adapt_browser_wrapper(js_output)
-        worker_template = ROOT / str(profile.get(
-            "browserWorkerTemplate",
-            "experiments/plugin-build/templates/python-ce-lexer.worker.js",
-        ))
-        worker_name = str(profile.get("browserWorkerName", "python-ce-lexer.worker.js"))
+        worker_template_value = profile.get("browserWorkerTemplate")
+        worker_name_value = profile.get("browserWorkerName")
+        if not worker_template_value or not worker_name_value:
+            raise BuildError("A browserApi profile must declare browserWorkerTemplate and browserWorkerName.")
+        worker_template = ROOT / str(worker_template_value)
+        worker_name = str(worker_name_value)
         if not worker_template.is_file():
             raise BuildError(f"Browser worker template is missing: {worker_template}")
         shutil.copy2(worker_template, web_dir / worker_name)
@@ -452,7 +470,7 @@ def build(args: argparse.Namespace) -> int:
         f"- Entry point: `{profile['entrypoint']}`\n"
         f"- JavaScript runtime wrapper: `web/{js_output.name}`\n"
         f"- WebAssembly module: `web/{wasm_output.name}`\n"
-        + (f"- Browser worker adapter: `web/{profile.get('browserWorkerName', 'python-ce-lexer.worker.js')}`\n" if profile.get("browserApi") else "")
+        + (f"- Browser worker adapter: `web/{profile.get('browserWorkerName')}`\n" if profile.get("browserApi") else "")
         + f"- Runtime assertion: `{expected or 'process exited successfully'}`\n\n"
         + "This result proves only the capability named by this profile; it does not claim the entire plugin is browser-compatible.\n",
         encoding="utf-8",

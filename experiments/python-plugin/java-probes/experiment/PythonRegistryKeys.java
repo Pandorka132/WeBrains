@@ -1,11 +1,20 @@
 package experiment;
 
-/** Registry metadata extracted from the original Python CE plugin descriptors. */
+/** Registry metadata extracted from the original Python CE and IntelliJ platform descriptors. */
 public final class PythonRegistryKeys {
     private PythonRegistryKeys() { }
     public static final String[][] ALL = {
-        {"psi.sleep.in.validity.check", "false", "Platform PSI validity check setting"},
-        {"psi.incremental.reparse.depth.limit", "1000", "Platform PSI incremental reparse depth limit"},
+        {"code.style.cache.enable.change.events.on.settings.cached", "true", "Enable sending codeStyleSettingsChanged events when settings finish computing."},
+        {"code.style.cache.change.events.include.settings", "true", "Include code style settings in change events when computation has just finished."},
+        {"code.style.cache.high.eviction.rate.automatic.recovery.enabled", "true", "Enable detection of and automatic recovery from too high eviction rate in code style settings cache."},
+        {"code.style.cache.high.eviction.rate.automatic.recovery.threshold.duration", "10000", "Minimum duration in milliseconds of high code style cache eviction rate to trigger automatic recovery."},
+        {"code.style.cache.high.eviction.rate.automatic.recovery.threshold.frequency", "250", "Minimum code style cache evictions per second to trigger automatic recovery."},
+        {"code.style.cache.maximum.size", "250", "Maximum size of the code style settings cache."},
+        {"ide.hide.excluded.files", "false", "Controls visibility of excluded files in project views."},
+        {"platform.random.idempotence.check.rate", "1000", "Sets approximately once in how many queries the IDE should recalculate a cached value."},
+        {"psi.incremental.reparse.depth.limit", "1000", "Maximum PSI depth eligible for incremental reparse."},
+        {"psi.sleep.in.validity.check", "false", "Debug check for invalid PSI elements."},
+
         {"editor.range.marker.use.pmarker.internal", "false", "Internal range marker implementation switch"},
         {"black.formatter.support.enabled", "true", "Enable Black formatter support"},
         {"disable.python.cache.memory.mapping", "false", "Disables memory mapping for Python package cache, opting to use in-memory representation instead."},
@@ -39,7 +48,7 @@ public final class PythonRegistryKeys {
         {"python.debugger.use.dispatcher", "false", "Use dispatcher in Python debugger"},
         {"python.detect.cross.module.dependencies", "false", "Try to detect and automatically set-up module dependencies in a multi-module project"},
         {"python.eel.native", "true", "Support eel for local SDK"},
-        {"python.evolution.widget", "true", "Enables the 'Evo Module Python Interpreter' widget in the status bar, in place of the classic interpreter widget"},
+        {"python.evolution.widget", "false", "Disables the optional Evo interpreter widget in the standalone inspection harness"},
         {"python.evolution.widget.cache.seconds", "3", "Evo interpreter widget: how long (seconds) after closing the popup a re-open reuses the built tree before rebuilding"},
         {"python.evolution.widget.scan.depth", "1", "Evo interpreter widget: how many directory levels below a base dir env discovery descends to find nested virtualenvs (a direct child is level 1)"},
         {"python.evolution.widget.scan.max.dirs", "2000", "Evo interpreter widget: upper bound on directories examined per env discovery, so a huge project tree can't turn a node expansion into a long walk"},
