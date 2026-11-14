@@ -1,6 +1,6 @@
 # Python Community Edition compatibility experiment
 
-This folder isolates the first plugin compatibility investigation for WebBrains.
+This folder isolates the first plugin compatibility investigation for WeBrains.
 
 > **Current hand-off:** read [`../../docs/python-ce-roadmap.md`](../../docs/python-ce-roadmap.md) first. It records the latest verified result, reproducible commands, compiler patch, exact artifact paths, guardrails, and ordered next steps. The sections below retain the historical investigation log; older statements about the lexer failing in Wasm were superseded by the successful GraalVM Web Image run recorded on 2026-10-19. The 2026-10-20 parser-probe update further isolates the current parser Wasm startup failure to `SupervisorJob` / `JobSupport` initialization; see the roadmap for the staged test evidence.
 
@@ -55,7 +55,7 @@ Treat this as a staged compatibility test, not as an assumption that the entire 
 
 1. Parse the original plugin metadata and build a module/dependency inventory.
 2. Select one small, frontend-oriented capability (ideally Python file type, lexer/parser, or syntax highlighting) and trace its transitive dependencies.
-3. Check whether those dependencies can be represented in the WebBrains browser platform.
+3. Check whether those dependencies can be represented in the WeBrains browser platform.
 4. Test the original Python CE lexer with TeaVM WebAssembly GC and the matching IntelliJ Platform JARs.
 5. Expand to parser/AST only after the lexer works in Wasm; keep running user Python code separate from IDE/plugin code (Pyodide remains the intended browser-side execution runtime).
 

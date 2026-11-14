@@ -49,14 +49,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     // Keep the interpreter warm while refreshing only the project-specific state for this run.
     pyodide.runPython(`
 import os, shutil, sys
-__webbrains_root = ${JSON.stringify(projectRoot)}
-for __webbrains_name, __webbrains_module in list(sys.modules.items()):
-    __webbrains_file = getattr(__webbrains_module, "__file__", None)
-    if __webbrains_file and os.path.abspath(__webbrains_file).startswith(__webbrains_root + os.sep):
-        sys.modules.pop(__webbrains_name, None)
-sys.path[:] = [__webbrains_path for __webbrains_path in sys.path if not os.path.abspath(__webbrains_path or os.getcwd()).startswith(__webbrains_root)]
-shutil.rmtree(__webbrains_root, ignore_errors=True)
-os.makedirs(__webbrains_root, exist_ok=True)
+__webrains_root = ${JSON.stringify(projectRoot)}
+for __webrains_name, __webrains_module in list(sys.modules.items()):
+    __webrains_file = getattr(__webrains_module, "__file__", None)
+    if __webrains_file and os.path.abspath(__webrains_file).startswith(__webrains_root + os.sep):
+        sys.modules.pop(__webrains_name, None)
+sys.path[:] = [__webrains_path for __webrains_path in sys.path if not os.path.abspath(__webrains_path or os.getcwd()).startswith(__webrains_root)]
+shutil.rmtree(__webrains_root, ignore_errors=True)
+os.makedirs(__webrains_root, exist_ok=True)
 `)
     pyodide.FS.mkdirTree(projectRoot)
     for (const file of request.files) {
@@ -65,11 +65,11 @@ os.makedirs(__webbrains_root, exist_ok=True)
       pyodide.FS.writeFile(destination, file.content)
     }
     const scriptPath = `${projectRoot}/${request.scriptPath}`
-    pyodide.globals.set('__webbrains_script_path', scriptPath)
-    pyodide.globals.set('__webbrains_module_name', request.moduleName)
-    pyodide.globals.set('__webbrains_arguments', request.args)
-    pyodide.globals.set('__webbrains_redirect_input', request.redirectInput)
-    pyodide.globals.set('__webbrains_input_file', `${projectRoot}/${request.inputFile}`)
+    pyodide.globals.set('__webrains_script_path', scriptPath)
+    pyodide.globals.set('__webrains_module_name', request.moduleName)
+    pyodide.globals.set('__webrains_arguments', request.args)
+    pyodide.globals.set('__webrains_redirect_input', request.redirectInput)
+    pyodide.globals.set('__webrains_input_file', `${projectRoot}/${request.inputFile}`)
     if (request.targetMode === 'module') await pyodide.loadPackagesFromImports(`import ${request.moduleName}`)
     const currentPythonPaths = new Set(request.files.filter((file) => file.path.endsWith('.py')).map((file) => file.path))
     for (const path of preparedPythonSources.keys()) if (!currentPythonPaths.has(path)) preparedPythonSources.delete(path)
@@ -83,33 +83,33 @@ os.makedirs(__webbrains_root, exist_ok=True)
     self.postMessage({ type: 'status', status: 'running', message: 'Running Python program…' })
     const exitCode = await pyodide.runPythonAsync(`
 import os, runpy, sys
-if '__webbrains_default_stdin' not in globals():
-    __webbrains_default_stdin = sys.stdin
-sys.stdin = __webbrains_default_stdin
+if '__webrains_default_stdin' not in globals():
+    __webrains_default_stdin = sys.stdin
+sys.stdin = __webrains_default_stdin
 os.chdir(os.path.join(${JSON.stringify(projectRoot)}, ${JSON.stringify(request.workingDirectory)}))
-if __webbrains_redirect_input:
-    sys.stdin = open(__webbrains_input_file, encoding="utf-8")
+if __webrains_redirect_input:
+    sys.stdin = open(__webrains_input_file, encoding="utf-8")
 if ${JSON.stringify(request.targetMode)} == "module":
     sys.path.insert(0, os.getcwd())
-    sys.argv = [__webbrains_module_name, *list(__webbrains_arguments)]
+    sys.argv = [__webrains_module_name, *list(__webrains_arguments)]
 else:
-    sys.path.insert(0, os.path.dirname(__webbrains_script_path))
-    sys.argv = [${JSON.stringify(request.scriptPath)}, *list(__webbrains_arguments)]
-__webbrains_exit_code = 0
+    sys.path.insert(0, os.path.dirname(__webrains_script_path))
+    sys.argv = [${JSON.stringify(request.scriptPath)}, *list(__webrains_arguments)]
+__webrains_exit_code = 0
 try:
     if ${JSON.stringify(request.targetMode)} == "module":
-        runpy.run_module(__webbrains_module_name, run_name="__main__", alter_sys=True)
+        runpy.run_module(__webrains_module_name, run_name="__main__", alter_sys=True)
     else:
-        runpy.run_path(__webbrains_script_path, run_name="__main__")
+        runpy.run_path(__webrains_script_path, run_name="__main__")
 except SystemExit as error:
     if error.code is None:
-        __webbrains_exit_code = 0
+        __webrains_exit_code = 0
     elif isinstance(error.code, int):
-        __webbrains_exit_code = error.code
+        __webrains_exit_code = error.code
     else:
         print(error.code, file=sys.stderr)
-        __webbrains_exit_code = 1
-__webbrains_exit_code
+        __webrains_exit_code = 1
+__webrains_exit_code
 `)
     self.postMessage({ type: 'finished', exitCode: Number(exitCode) })
   } catch (error) {

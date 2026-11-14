@@ -70,7 +70,7 @@ function ToolWindowContent({ tool, diagnostics = [], source = '', filePath = '',
         })}</div>}
     </div>
   }
-  if (tool === 'Terminal') return <div className="terminal-content"><span className="terminal-prompt">webbrains@browser</span><span>:</span><span className="terminal-path">~/aurora-dashboard</span><span>$</span><span className="muted">This is a local preview panel. OS shell access is not available in the browser.</span></div>
+  if (tool === 'Terminal') return <div className="terminal-content"><span className="terminal-prompt">webrains@browser</span><span>:</span><span className="terminal-path">~/aurora-dashboard</span><span>$</span><span className="muted">This is a local preview panel. OS shell access is not available in the browser.</span></div>
   if (tool === 'Run' && runProps) return <RunToolWindow {...runProps} />
   if (tool === 'Run') return <div className="run-console" aria-label="Run console"><div className="run-console-toolbar"><span>Python · {runStatus}</span><button type="button" disabled={!['running', 'starting', 'waiting-input'].includes(runStatus)} onClick={onStopRun}>Stop</button></div><pre className="run-console-output" aria-live="polite">{runOutput.map((entry, index) => <span className={entry.stream === 'stderr' ? 'run-console-stderr' : ''} key={index}>{entry.text}</span>)}</pre></div>
   return <span className="muted">Browser debugging is not connected to a runtime.</span>
@@ -739,7 +739,7 @@ export function IdePage() {
     if (!fileName) return
     if (fileName.includes('/')) { setNotice('Enter only a file name, without a path.'); return }
     const clean = [creationParent, fileName].filter(Boolean).join('/')
-    if (isLikelyBinaryFileName(fileName)) { setNotice('Binary assets cannot be created or edited as text in WebBrains yet.'); return }
+    if (isLikelyBinaryFileName(fileName)) { setNotice('Binary assets cannot be created or edited as text in WeBrains yet.'); return }
     if (clean.endsWith('/')) { setNotice('Enter a file name after the final slash.'); return }
     const existing = project.files.find(clean)
     if (existing) { setNotice(`An entry already exists at ${clean}. Choose a different file name.`); return }
@@ -931,7 +931,7 @@ export function IdePage() {
         { label: 'Hide All Tool Windows', shortcut: 'Ctrl+Shift+F12', run: () => { setLeftOpen(false); setLeftBottomOpen(false); setRightOpen(false); setRightBottomOpen(false); setBottomOpen(false) } },
         { label: 'Project Tool Window', shortcut: 'Alt+1', run: () => showToolWindow('Project') },
       ]
-      default: return [{ label: 'WebBrains Help', shortcut: '', run: notImplemented('Help') }, { label: 'About', shortcut: '', run: () => setNotice('WebBrains — browser-only IntelliJ-style IDE experiment.') }]
+      default: return [{ label: 'WeBrains Help', shortcut: '', run: notImplemented('Help') }, { label: 'About', shortcut: '', run: () => setNotice('WeBrains — browser-only IntelliJ-style IDE experiment.') }]
     }
   }
   const dialogResults = dialog === 'actions' ? actionItems : searchResults
@@ -966,7 +966,7 @@ export function IdePage() {
 
   return <main className="ide-shell" onClick={() => { if (menu) setMenu(null); if (runConfigMenuOpen) setRunConfigMenuOpen(false) }}>
     <header className="ide-topbar">
-      <a href={appUrl('/')} className="ide-brand" aria-label="WebBrains projects" onClick={(event) => { event.preventDefault(); void navigateToProjects() }}><span className="brand-mark ide-brand-mark">IJ</span></a>
+      <a href={appUrl('/')} className="ide-brand" aria-label="WeBrains projects" onClick={(event) => { event.preventDefault(); void navigateToProjects() }}><span className="brand-mark ide-brand-mark">IJ</span></a>
       <button type="button" className="project-switcher" aria-label={`Back to projects from ${project.name}`} title="Back to projects" onClick={() => { void navigateToProjects() }}><span className="project-switch-icon idea-project-icon" style={projectIconStyle(project.id)} aria-hidden="true">{projectInitials(project.name)}</span><strong>{project.name}</strong></button>
       <nav className="menu-bar" aria-label="Main menu">{['File', 'Edit', 'View', 'Navigate', 'Code', 'Refactor', 'Build', 'Run', 'Tools', 'VCS', 'Window', 'Help'].map((item) => <div className="menu-wrap" key={item}><button type="button" className="menu-item" aria-expanded={menu === item} onClick={(event) => { event.stopPropagation(); setMenu(menu === item ? null : item) }}>{item}</button>{menu === item && <div className="menu-popover">{menuCommandsFor(item).map((command) => <button key={command.label} type="button" onClick={() => { if (command.label === 'Save All') flushAllOpenFiles(); else if (command.label === 'Close Project') void navigateToProjects(); else command.run(); setMenu(null) }}><span>{command.label}</span><small>{command.shortcut}</small></button>)}</div>}</div>)}</nav>
       <div className="topbar-spacer" />
@@ -1059,7 +1059,7 @@ export function IdePage() {
         <span className="status-branch">⑂</span>
         <span>{provider === 'drive' ? 'Google Drive' : 'Local'}</span>
         <span className="status-separator">|</span>
-        <span>WebBrains</span>
+        <span>WeBrains</span>
       </div>
       <div className="status-right">
         {currentDiagnostics.length > 0

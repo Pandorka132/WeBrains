@@ -2,7 +2,7 @@
 
 ## Goal and compatibility levels
 
-WebBrains is a static React + TypeScript application. Its production code runs in the browser; Node.js is used only for development and builds. The compatibility goal is to make carefully selected IntelliJ Platform concepts useful through browser-native implementations and explicit adapters. Upstream API compatibility is a long-term direction, not a capability already delivered.
+WeBrains is a static React + TypeScript application. Its production code runs in the browser; Node.js is used only for development and builds. The compatibility goal is to make carefully selected IntelliJ Platform concepts useful through browser-native implementations and explicit adapters. Upstream API compatibility is a long-term direction, not a capability already delivered.
 
 Compatibility has three distinct levels:
 
@@ -14,7 +14,7 @@ The current TypeScript foundation implements small browser-oriented primitives. 
 
 ## API subsystem support matrix
 
-“Browser-native” means WebBrains can implement the concept directly with browser-compatible code. “Shim/adaptation” means a targeted compatibility layer can translate a useful subset. “Deferred” means the concept is implementable but should wait for lower-level contracts. “Unsupported” means the original contract depends on facilities unavailable in a static browser runtime; a different product contract would be needed.
+“Browser-native” means WeBrains can implement the concept directly with browser-compatible code. “Shim/adaptation” means a targeted compatibility layer can translate a useful subset. “Deferred” means the concept is implementable but should wait for lower-level contracts. “Unsupported” means the original contract depends on facilities unavailable in a static browser runtime; a different product contract would be needed.
 
 | Subsystem | Initial disposition | Browser feasibility, dependencies, and limits |
 |---|---|---|
@@ -34,7 +34,7 @@ The current TypeScript foundation implements small browser-oriented primitives. 
 | Documents and editing | **Browser-native** | A versioned text document with range edits, synchronous notifications, and LF-normalized line separators is implemented. The editor model tracks caret/selection offsets through edits. Undo/redo, guarded blocks, injected documents, bulk updates, and exact IntelliJ event semantics remain future work. |
 | Editor, caret, and selection | **Browser-native** | Minimal caret/selection state is implemented independently of rendering. A production editor view, multi-caret behavior, visual columns, folding, inlays, soft wraps, and editor event contracts remain unimplemented. |
 | PSI, trees, and element types | **Shim/adaptation** | TypeScript tree nodes, element types, ranges, and language ownership are feasible. The current source defines interfaces only. PSI invalidation, equivalence, stubs, references, AST loading, and modification tracking need a coherent document-to-tree model. |
-| Lexer and parser | **Shim/adaptation** | Lexer/parser implementations can be ported or generated as JavaScript/TypeScript and consume WebBrains token/tree contracts. Current language abstractions expose a lexer boundary only. Generated IntelliJ Java code cannot run just because its algorithms are understood; parser builders and token types need adapters. |
+| Lexer and parser | **Shim/adaptation** | Lexer/parser implementations can be ported or generated as JavaScript/TypeScript and consume WeBrains token/tree contracts. Current language abstractions expose a lexer boundary only. Generated IntelliJ Java code cannot run just because its algorithms are understood; parser builders and token types need adapters. |
 | Indexes and stubs | **Deferred** | Browser workers and IndexedDB can hold project-local indexes; PSI/stub contracts and invalidation must come first. Quotas, eviction, schema migration, large workspaces, and cross-tab consistency shape the design. IntelliJ index formats are not assumed reusable. |
 | Inspections, annotators, and highlighting | **Shim/adaptation** | Lexer errors now produce ranged red squiggles with a hover summary (severity, message, source); the Problems tool window lists active-file diagnostics and navigates the caret when a problem is selected. Grammar/semantic diagnostics, original Python annotators/inspections, daemon scheduling, and exact pass ordering remain unsupported until the original parser/PSI dependency closure can run in-browser. |
 | Completion and lookup | **Shim/adaptation** | A browser-native lookup popup consumes a language-scoped plugin completion-contributor registry modeled on IntelliJ's `com.intellij.completion.contributor` extension point. The fabricated current-file identifier contributor and non-IntelliJ menu decorations were removed. A test-only plugin verifies the complete registration-to-lookup request path, including language scoping, cancellation, and disposal. No Python completion contributor is enabled in production until the original PSI/context-dependent behavior can be ported accurately; the popup does not invent suggestions. |
@@ -47,7 +47,7 @@ The current TypeScript foundation implements small browser-oriented primitives. 
 | Settings and persistence | **Browser-native** | Typed settings can use memory, IndexedDB, or browser storage. Persistence must be explicit, versioned, quota-aware, and scoped by origin. It cannot silently read or write IntelliJ config directories. |
 | Background tasks, progress, and cancellation | **Browser-native** | Promises, `AbortSignal`, and Web Workers cover cooperative tasks and progress reporting. CPU-heavy work needs workers; cancellation is cooperative and cannot forcibly stop arbitrary synchronous code on the UI thread. |
 | Read/write actions and concurrency | **Shim/adaptation** | A serialized async read/write coordinator or worker ownership model can protect shared document/index state. Java thread locks, read-action nesting, modality, and blocking semantics do not map directly to a single-threaded browser UI. Never block the UI thread to imitate them. |
-| UI, Swing, and AWT | **Unsupported** for Swing/AWT; **shim/adaptation** for UI intent | React and DOM components can reproduce user-facing workflows behind WebBrains UI interfaces. Swing/AWT widgets, graphics contexts, native menus, and look-and-feel cannot execute in a browser. Port each UI contribution rather than emulating desktop widgets. |
+| UI, Swing, and AWT | **Unsupported** for Swing/AWT; **shim/adaptation** for UI intent | React and DOM components can reproduce user-facing workflows behind WeBrains UI interfaces. Swing/AWT widgets, graphics contexts, native menus, and look-and-feel cannot execute in a browser. Port each UI contribution rather than emulating desktop widgets. |
 | Filesystem, process, and network APIs | **Unsupported** for unrestricted filesystem/process access; **shim/adaptation** for permitted browser APIs | Fetch, WebSocket, browser storage, workers, and user-granted file handles are available within browser policy. CORS, secure-context, permission, CSP, and host-header rules apply. Java sockets, arbitrary files, environment variables, and process APIs are unavailable. |
 | Language injection | **Deferred** | Embedded languages can be modeled as mapped ranges/documents after PSI and editor range mapping stabilize. Requires host/guest edit synchronization, nested diagnostics, and language-specific parsers; no current injection runtime exists. |
 | Testing APIs | **Shim/adaptation** | Node built-in tests cover pure TypeScript platform contracts today; browser integration can use browser automation when available. IntelliJ fixtures, light project environments, plugin test classpaths, and headless Swing tests are not compatible without reimplementation. |
@@ -67,7 +67,7 @@ The current TypeScript foundation implements small browser-oriented primitives. 
 - action registration, presentation updates, dispatch, and key bindings;
 - project/module ownership, a memory VFS, versioned documents, caret/selection state, and language/PSI interfaces.
 
-These are deliberately small contracts for WebBrains code and future adapters. Similarity of API shape does not mean IntelliJ behavioral compatibility. Current automated coverage focuses on actual lifecycle, event subscription, registry, document, and model semantics.
+These are deliberately small contracts for WeBrains code and future adapters. Similarity of API shape does not mean IntelliJ behavioral compatibility. Current automated coverage focuses on actual lifecycle, event subscription, registry, document, and model semantics.
 
 ## Python CE compiler experiment (2026-10-19)
 
@@ -91,4 +91,4 @@ At each milestone, record the supported API subset and known deviations. A porte
 - Dynamic class loading, reflection-heavy extension discovery, arbitrary JVM bytecode, and native libraries are not supplied by this architecture. Compiling selected code to another target would still require compatible APIs and is not part of this step.
 - Browser file access, storage quotas, workers, cross-origin isolation, CSP, and permissions vary by deployment host and browser.
 - PSI/index invalidation, cancellation, large workspaces, multi-file edits, and UI responsiveness are correctness concerns, not later polish.
-- The supplied Python Community Edition experiment demonstrates that even its parser depends on IntelliJ types and services. It is evidence for dependency analysis, not evidence that its JARs run in WebBrains.
+- The supplied Python Community Edition experiment demonstrates that even its parser depends on IntelliJ types and services. It is evidence for dependency analysis, not evidence that its JARs run in WeBrains.

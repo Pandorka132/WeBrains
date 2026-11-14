@@ -17,9 +17,16 @@ type BrowserFsApi = {
 }
 declare global { interface Window { google?: GoogleGlobal } }
 
-type GoogleGlobal = { accounts?: { oauth2: { initTokenClient(options: { client_id: string; scope: string; callback(response: { access_token?: string; expires_in?: number; error?: string }): void }): { requestAccessToken(): void } } } }
-const tokenKey = 'webbrains.drive.oauth'
-const localMetaPath = '/.webbrains-projects.json'
+type GoogleTokenClient = { requestAccessToken(options?: { prompt?: string }): void }
+type GoogleGlobal = { accounts?: { oauth2: { initTokenClient(options: { client_id: string; scope: string; callback(response: { access_token?: string; expires_in?: number; error?: string }): void }): GoogleTokenClient } } }
+type StoredDriveToken = { accessToken: string; expiresAt: number; clientId?: string }
+const tokenKey = 'webrains.drive.oauth'
+// Google access tokens from the implicit flow live for about one hour and browsers
+// cannot receive refresh tokens, so WeBrains re-requests a token silently (without
+// a consent prompt) shortly before expiry and after rejected requests. This keeps
+// the Drive session usable for as long as the browser holds an active Google session.
+const tokenRenewalMarginMs = 5 * 60 * 1000
+const localMetaPath = '/.webrains-projects.json'
 let browserFsPromise: Promise<BrowserFsApi> | undefined
 
 // randomUUID is missing in older browsers and on non-secure origins such as HTTP LAN hostnames.
@@ -38,7 +45,7 @@ function browserFs(): Promise<BrowserFsApi> {
   browserFsPromise = import('browserfs').then((BrowserFS) => new Promise((resolve, reject) => {
     // AsyncMirror exposes synchronous operations to the IDE while persisting every write
     // to BrowserFS's IndexedDB backend. The in-memory mirror is not the durable store.
-    BrowserFS.configure({ fs: 'AsyncMirror', options: { sync: { fs: 'InMemory' }, async: { fs: 'IndexedDB', options: { storeName: 'webbrains-projects' } } } }, (error) => {
+    BrowserFS.configure({ fs: 'AsyncMirror', options: { sync: { fs: 'InMemory' }, async: { fs: 'IndexedDB', options: { storeName: 'webrains-projects' } } } }, (error) => {
       if (error) { browserFsPromise = undefined; reject(error); return }
       resolve(BrowserFS.BFSRequire('fs') as unknown as BrowserFsApi)
     })
@@ -108,11 +115,11 @@ class BrowserFile implements VirtualFile {
   private fs: BrowserFsApi
   constructor(fs: BrowserFsApi, path: string, name: string) { this.fs = fs; this.path = path; this.name = name }
   async readText(): Promise<string> {
-    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WebBrains yet.`)
+    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WeBrains yet.`)
     return this.fs.readFileSync(this.path, 'utf8')
   }
   write(text: string): void {
-    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WebBrains yet.`)
+    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WeBrains yet.`)
     this.fs.writeFileSync(this.path, text, 'utf8')
   }
 }
@@ -137,7 +144,7 @@ class BrowserFileSystem implements VirtualFileSystem {
   writeText(path: string, text: string): VirtualFile {
     const relative = normalizeRelativePath(relativePathFrom(path, this.basePath)).join('/')
     if (!relative) throw new Error('File path must name a file')
-    if (isLikelyBinaryFileName(relative)) throw new Error(`Binary file "${relative}" cannot be edited as text in WebBrains yet.`)
+    if (isLikelyBinaryFileName(relative)) throw new Error(`Binary file "${relative}" cannot be edited as text in WeBrains yet.`)
     const absolute = `${this.basePath}/${relative}`
     const parts = absolute.split('/'); parts.pop()
     const parent = parts.join('/')
@@ -215,57 +222,106 @@ function ensureBrowserDirectory(fs: BrowserFsApi, path: string): void {
 function slug(value: string): string { return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project' }
 
 export function getConfiguredGoogleClientId(): string { return import.meta.env?.VITE_GOOGLE_CLIENT_ID?.trim() ?? '' }
+/**
+ * Restores an expired Drive session at page load, before the user sees any sign-in
+ * button: the prompt-less Google Identity flow can mint a fresh token without user
+ * interaction, since the browser normally keeps the Google session cookie across restarts.
+ */
+export async function tryRestoreDriveSession(): Promise<boolean> {
+  if (readToken() && await renewDriveTokenSilently()) return true
+  return isDriveConnected()
+}
 export function isDriveConnected(): boolean {
+  // Read-only status: expired tokens are kept in place so the silent session restore
+  // can still renew them; invalid tokens are dropped by readToken().
   const token = readToken()
-  if (!token || token.expiresAt <= Date.now() + 30_000) {
-    if (token) removeStoredToken()
-    return false
-  }
-  return true
+  return Boolean(token && token.expiresAt > Date.now() + 30_000)
 }
 function removeStoredToken(): void {
   try { localStorage.removeItem(tokenKey) } catch { /* Storage may be unavailable in restricted browser contexts. */ }
 }
 
-function readToken(): { accessToken: string; expiresAt: number } | undefined {
+function readToken(): StoredDriveToken | undefined {
   try {
     const raw = localStorage.getItem(tokenKey)
     if (!raw) return undefined
     const value: unknown = JSON.parse(raw)
     if (typeof value !== 'object' || value === null) throw new Error('Invalid stored Drive token')
-    const token = value as { accessToken?: unknown; expiresAt?: unknown }
+    const token = value as { accessToken?: unknown; expiresAt?: unknown; clientId?: unknown }
     if (typeof token.accessToken !== 'string' || token.accessToken.length === 0 || typeof token.expiresAt !== 'number' || !Number.isFinite(token.expiresAt)) {
       throw new Error('Invalid stored Drive token')
     }
-    return { accessToken: token.accessToken, expiresAt: token.expiresAt }
+    return {
+      accessToken: token.accessToken,
+      expiresAt: token.expiresAt,
+      clientId: typeof token.clientId === 'string' && token.clientId ? token.clientId : undefined,
+    }
   } catch {
     removeStoredToken()
     return undefined
   }
 }
 
+function storeToken(clientId: string, accessToken: string, expiresIn: number): StoredDriveToken {
+  const token: StoredDriveToken = { accessToken, expiresAt: Date.now() + expiresIn * 1000, clientId }
+  try { localStorage.setItem(tokenKey, JSON.stringify(token)) } catch { /* Storage may be unavailable in restricted browser contexts. */ }
+  return token
+}
+
+let silentRenewal: Promise<StoredDriveToken | undefined> | undefined
+/** Requests a new access token without a consent prompt while the browser keeps an active Google session. */
+export function renewDriveTokenSilently(): Promise<StoredDriveToken | undefined> {
+  if (silentRenewal) return silentRenewal
+  const clientId = readToken()?.clientId || getConfiguredGoogleClientId()
+  if (!clientId) return Promise.resolve(undefined)
+  silentRenewal = (async () => {
+    try {
+      const google = await ensureGoogleIdentity()
+      return await new Promise<StoredDriveToken | undefined>((resolve) => {
+        const client = google.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/drive.file',
+          callback: (response) => {
+            if (!response.access_token) { resolve(undefined); return }
+            resolve(storeToken(clientId, response.access_token, response.expires_in ?? 3600))
+          },
+        })
+        client.requestAccessToken({ prompt: '' })
+        // Safety net: Google answers token requests, but never wait forever for it.
+        const guard = setTimeout(() => resolve(undefined), 30_000) as { unref?: () => void }
+        guard.unref?.()
+      })
+    } catch {
+      return undefined
+    } finally {
+      silentRenewal = undefined
+    }
+  })()
+  return silentRenewal
+}
+
 async function ensureGoogleIdentity(): Promise<NonNullable<GoogleGlobal['accounts']>['oauth2']> {
   if (window.google?.accounts?.oauth2) return window.google.accounts.oauth2
   await new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>('script[src^="https://accounts.google.com/gsi/client"]')
-    const script = existing && existing.dataset.webbrainsFailed !== 'true' ? existing : document.createElement('script')
+    const script = existing && existing.dataset.webrainsFailed !== 'true' ? existing : document.createElement('script')
     const timeout = window.setTimeout(() => {
-      script.dataset.webbrainsLoading = 'false'
-      script.dataset.webbrainsFailed = 'true'
+      script.dataset.webrainsLoading = 'false'
+      script.dataset.webrainsFailed = 'true'
       script.remove()
       reject(new Error('Google Identity Services timed out while loading. Check your connection and try again.'))
     }, 10_000)
     script.addEventListener('load', () => {
       window.clearTimeout(timeout)
-      script.dataset.webbrainsLoading = 'false'
-      script.dataset.webbrainsLoaded = 'true'
+      script.dataset.webrainsLoading = 'false'
+      script.dataset.webrainsLoaded = 'true'
       if (window.google?.accounts?.oauth2) resolve()
       else reject(new Error('Google Identity Services loaded but did not initialize. Reload the page and try again.'))
     }, { once: true })
     script.addEventListener('error', () => {
       window.clearTimeout(timeout)
-      script.dataset.webbrainsLoading = 'false'
-      script.dataset.webbrainsFailed = 'true'
+      script.dataset.webrainsLoading = 'false'
+      script.dataset.webrainsFailed = 'true'
       script.remove()
       reject(new Error('Google Identity Services could not be loaded. Check your connection.'))
     }, { once: true })
@@ -273,11 +329,11 @@ async function ensureGoogleIdentity(): Promise<NonNullable<GoogleGlobal['account
       script.src = 'https://accounts.google.com/gsi/client'
       script.async = true
       script.defer = true
-      script.dataset.webbrainsLoading = 'true'
+      script.dataset.webrainsLoading = 'true'
       document.head.append(script)
-    } else if (script.dataset.webbrainsLoaded === 'true' && !window.google?.accounts?.oauth2) {
+    } else if (script.dataset.webrainsLoaded === 'true' && !window.google?.accounts?.oauth2) {
       window.clearTimeout(timeout)
-      script.dataset.webbrainsFailed = 'true'
+      script.dataset.webrainsFailed = 'true'
       script.remove()
       reject(new Error('Google Identity Services did not initialize. Reload the page and try again.'))
     }
@@ -288,7 +344,7 @@ async function ensureGoogleIdentity(): Promise<NonNullable<GoogleGlobal['account
 }
 
 export async function connectDrive(clientId = getConfiguredGoogleClientId()): Promise<void> {
-  if (!clientId) throw new Error('Google sign-in is not configured for this WebBrains deployment yet.')
+  if (!clientId) throw new Error('Google sign-in is not configured for this WeBrains deployment yet.')
   const google = await ensureGoogleIdentity()
   await new Promise<void>((resolve, reject) => {
     const client = google.initTokenClient({
@@ -297,7 +353,7 @@ export async function connectDrive(clientId = getConfiguredGoogleClientId()): Pr
       callback: (response) => {
         if (!response.access_token) { reject(new Error(response.error ?? 'Google authorization was not granted.')); return }
         try {
-          localStorage.setItem(tokenKey, JSON.stringify({ accessToken: response.access_token, expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000 }))
+          storeToken(clientId, response.access_token, response.expires_in ?? 3600)
           resolve()
         } catch {
           reject(new Error('Browser storage is unavailable, so the Google Drive session could not be saved.'))
@@ -308,18 +364,31 @@ export async function connectDrive(clientId = getConfiguredGoogleClientId()): Pr
   })
 }
 
-function driveToken(): string {
+async function ensureDriveToken(): Promise<string> {
   const token = readToken()
-  if (!token || token.expiresAt <= Date.now()) {
-    if (token) removeStoredToken()
-    throw new Error('Your Google Drive session expired. Reconnect to continue.')
+  if (!token) throw new Error('Google Drive is not connected. Sign in to continue.')
+  const remainingMs = token.expiresAt - Date.now()
+  if (remainingMs <= 0 || remainingMs <= tokenRenewalMarginMs) {
+    const renewed = await renewDriveTokenSilently()
+    if (renewed) return renewed.accessToken
+    if (remainingMs <= 0) {
+      removeStoredToken()
+      throw new Error('Your Google Drive session expired. Reconnect to continue.')
+    }
   }
   return token.accessToken
 }
-async function driveRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`https://www.googleapis.com/drive/v3${path}`, { ...init, headers: { Authorization: `Bearer ${driveToken()}`, ...init.headers } })
+async function driveRequest<T>(path: string, init: RequestInit = {}, renewed = false): Promise<T> {
+  const token = await ensureDriveToken()
+  const response = await fetch(`https://www.googleapis.com/drive/v3${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...init.headers } })
   if (!response.ok) {
-    if (response.status === 401) removeStoredToken()
+    if (response.status === 401 && !renewed) {
+      // A rejected token is either revoked or invalidated by Google; try one silent
+      // re-authorization before asking the user to sign in again. Renew first so the
+      // stored client id is still available, and drop the token only if that fails.
+      if (await renewDriveTokenSilently()) return driveRequest<T>(path, init, true)
+      removeStoredToken()
+    }
     const detail = await response.text()
     throw new Error(`Google Drive request failed (${response.status}): ${detail.slice(0, 180)}`)
   }
@@ -342,13 +411,13 @@ async function ensureDriveFolder(name: string, parentId?: string): Promise<Drive
   return driveRequest<DriveRecord>('/files?fields=id,name,mimeType,parents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metadata) })
 }
 async function driveProjectsFolder(): Promise<DriveRecord> {
-  const root = await ensureDriveFolder('WebBrains')
+  const root = await ensureDriveFolder('WeBrains')
   return ensureDriveFolder('projects', root.id)
 }
 export async function listDriveProjects(): Promise<ProjectSummary[]> {
-  const webBrainsFolder = await findDriveFolder('WebBrains')
-  if (!webBrainsFolder) return []
-  const projectsFolder = await findDriveFolder('projects', webBrainsFolder.id)
+  const webrainsFolder = await findDriveFolder('WeBrains')
+  if (!webrainsFolder) return []
+  const projectsFolder = await findDriveFolder('projects', webrainsFolder.id)
   if (!projectsFolder) return []
   const projects: ProjectSummary[] = []
   let pageToken = ''
@@ -369,7 +438,7 @@ export async function createDriveProject(name: string, initialFiles: Readonly<Re
   const cleanName = name.trim()
   if (!cleanName) throw new Error('Enter a project name.')
   const projectsFolder = await driveProjectsFolder()
-  const folder = await driveRequest<DriveRecord>('/files?fields=id,name,mimeType,parents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: cleanName, mimeType: folderMime, parents: [projectsFolder.id], appProperties: { webbrainsProject: 'true' } }) })
+  const folder = await driveRequest<DriveRecord>('/files?fields=id,name,mimeType,parents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: cleanName, mimeType: folderMime, parents: [projectsFolder.id], appProperties: { webrainsProject: 'true' } }) })
   const workspace = await openDriveProject(folder.id)
   for (const [path, content] of Object.entries(initialFiles)) await workspace.files.writeText(path, content)
   return workspace
@@ -413,8 +482,9 @@ class DriveFile implements VirtualFile {
   readonly path: string
   constructor(id: string, name: string, path: string) { this.id = id; this.name = name; this.path = path }
   async readText(): Promise<string> {
-    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WebBrains yet.`)
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(this.id)}?alt=media`, { headers: { Authorization: `Bearer ${driveToken()}` } })
+    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WeBrains yet.`)
+    const token = await ensureDriveToken()
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(this.id)}?alt=media`, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) {
       if (response.status === 401) removeStoredToken()
       throw new Error(`Could not read ${this.name} from Google Drive (${response.status}).`)
@@ -422,12 +492,12 @@ class DriveFile implements VirtualFile {
     return response.text()
   }
   async write(text: string): Promise<void> {
-    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WebBrains yet.`)
+    if (isLikelyBinaryFileName(this.name)) throw new Error(`Binary file "${this.name}" cannot be edited as text in WeBrains yet.`)
     await uploadDriveFile(this.id, text)
   }
 }
 async function uploadDriveFile(id: string | undefined, text: string, parentId?: string, name?: string): Promise<DriveRecord> {
-  const boundary = `webbrains-${createId()}`
+  const boundary = `webrains-${createId()}`
   const metadata = id ? {} : { name, parents: parentId ? [parentId] : [] }
   const body = `--${boundary}\r
 Content-Type: application/json; charset=UTF-8\r
@@ -438,7 +508,7 @@ Content-Type: text/plain; charset=UTF-8\r
 \r
 ${text}\r
 --${boundary}--`
-  const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files${id ? `/${encodeURIComponent(id)}` : ''}?uploadType=multipart&fields=id,name,mimeType`, { method: id ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${driveToken()}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body })
+  const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files${id ? `/${encodeURIComponent(id)}` : ''}?uploadType=multipart&fields=id,name,mimeType`, { method: id ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${await ensureDriveToken()}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body })
   if (!response.ok) {
     if (response.status === 401) removeStoredToken()
     throw new Error(`Could not save to Google Drive (${response.status}).`)
@@ -485,7 +555,7 @@ class DriveFileSystem implements VirtualFileSystem {
     const parts = normalizeRelativePath(relativePathFrom(path, this.root.path))
     const filename = parts.pop()
     if (!filename) throw new Error('File path must name a file')
-    if (isLikelyBinaryFileName(filename)) throw new Error(`Binary file "${filename}" cannot be edited as text in WebBrains yet.`)
+    if (isLikelyBinaryFileName(filename)) throw new Error(`Binary file "${filename}" cannot be edited as text in WeBrains yet.`)
     let directory = this.root
     for (const segment of parts) {
       let entry = directory.entries.get(segment)
@@ -512,7 +582,7 @@ async function loadDriveDirectory(id: string, name: string, path: string, parent
     const result = await driveRequest<{ files: DriveRecord[]; nextPageToken?: string }>(`/files?fields=nextPageToken,files(id,name,mimeType)&pageSize=100&q=${query}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`)
     for (const item of result.files) {
       if (directory.entries.has(item.name)) {
-        throw new Error(`Google Drive folder "${path}" contains duplicate names (${item.name}). Rename one of them before opening this project in WebBrains.`)
+        throw new Error(`Google Drive folder "${path}" contains duplicate names (${item.name}). Rename one of them before opening this project in WeBrains.`)
       }
       const child = item.mimeType === folderMime ? await loadDriveDirectory(item.id, item.name, `${path}/${item.name}`, directory) : { id: item.id, name: item.name, isDirectory: false }
       directory.entries.set(item.name, child)
@@ -531,4 +601,33 @@ export async function openDriveProject(id: string): Promise<ProjectWorkspace> {
 
 export async function openWorkspace(provider: ProviderKind, id: string): Promise<ProjectWorkspace> {
   return provider === 'drive' ? openDriveProject(id) : openLocalProject(id)
+}
+
+/**
+ * Copies a browser-local project into a new Google Drive project. The local copy is kept:
+ * deleting user data automatically is riskier than leaving a redundant duplicate behind.
+ */
+export async function migrateLocalProjectToDrive(id: string): Promise<ProjectWorkspace> {
+  const local = await openLocalProject(id)
+  const drive = await createDriveProject(local.name)
+  const skipped: string[] = []
+  const copy = async (directory: VirtualDirectory, prefix: string): Promise<void> => {
+    for (const entry of directory.children()) {
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (entry.isDirectory) {
+        await copy(entry as VirtualDirectory, path)
+        continue
+      }
+      try {
+        await drive.files.writeText(path, await entry.readText())
+      } catch {
+        skipped.push(path)
+      }
+    }
+  }
+  await copy(local.files.root, '')
+  if (skipped.length) {
+    throw new Error(`Copied "${local.name}" to Google Drive, but ${skipped.length} file(s) could not be transferred (${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? ', …' : ''}). The Drive project has been created.`)
+  }
+  return drive
 }

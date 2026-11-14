@@ -22,7 +22,7 @@ export function createSampleProject(projectId: string = 'aurora-dashboard'): Sam
   files.writeText('src/styles.css', `:root {\n  font-family: Inter, system-ui, sans-serif;\n  color: #e6edf7;\n  background: #101621;\n}\n\n.dashboard {\n  max-width: 960px;\n  margin: 0 auto;\n  padding: 48px;\n}\n\n.dashboard-header {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n}\n`)
   files.writeText('index.html', `<!doctype html>\n<html lang="en">\n  <head><meta charset="UTF-8" /><title>Aurora</title></head>\n  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>\n</html>\n`)
   files.writeText('package.json', `{"name":"aurora-dashboard","private":true,"version":"0.1.0"}\n`)
-  files.writeText('README.md', `# Aurora Dashboard\n\nA small browser UI project used to explore the WebBrains editor.\n`)
+  files.writeText('README.md', `# Aurora Dashboard\n\nA small browser UI project used to explore the WeBrains editor.\n`)
   return { id: safeId, name: selected.name, description: selected.description, files }
 }
 

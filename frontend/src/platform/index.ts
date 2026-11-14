@@ -1,4 +1,4 @@
-/** Stable WebBrains platform facade. Prefer layer-specific imports for new code. */
+/** Stable WeBrains platform facade. Prefer layer-specific imports for new code. */
 export * from './core/actions.ts'
 export * from './core/document.ts'
 export * from './core/editorCommands.ts'

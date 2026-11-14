@@ -1,6 +1,6 @@
-# WebBrains frontend
+# WeBrains frontend
 
-WebBrains is a browser-only React + TypeScript + Vite IDE experiment. It runs as a static site; there is no Java backend or Node.js runtime requirement after deployment.
+WeBrains is a browser-only React + TypeScript + Vite IDE experiment. It runs as a static site; there is no Java backend or Node.js runtime requirement after deployment.
 
 ## Main views
 

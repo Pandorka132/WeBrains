@@ -15,11 +15,11 @@ export const runConfigurations = pluginRuntime.runConfigurations
 export const pythonExecutor = new PyodidePythonExecutor()
 
 pluginRuntime.register({
-  manifest: { id: 'WebBrains', name: 'WeBrains Core', version: '0.1.0', kind: 'platform' },
+  manifest: { id: 'WeBrains', name: 'WeBrains Core', version: '0.1.0', kind: 'platform' },
   activate(context) {
     context.register(context.projectTemplates.register({
-      id: 'webbrains.empty-project',
-      pluginId: 'WebBrains',
+      id: 'webrains.empty-project',
+      pluginId: 'WeBrains',
       name: 'Empty Project',
       description: 'Create an empty workspace without a configured language or SDK.',
       files: [],

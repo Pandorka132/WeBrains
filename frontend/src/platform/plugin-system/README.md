@@ -1,6 +1,6 @@
 # Plugin system
 
-`plugins.ts` currently validates WebBrains browser-plugin manifests, dependencies, and
+`plugins.ts` currently validates WeBrains browser-plugin manifests, dependencies, and
 activation order. It does not load JAR files or execute IntelliJ plugins.
 
 Keep catalog/descriptor concerns here. A future bytecode execution backend should be a

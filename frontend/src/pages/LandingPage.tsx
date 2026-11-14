@@ -9,6 +9,8 @@ import {
   isDriveConnected,
   listDriveProjects,
   listLocalProjects,
+  migrateLocalProjectToDrive,
+  tryRestoreDriveSession,
   type ProjectSummary,
 } from '../platform/web-runtime/providers.ts'
 import { appUrl, navigateApp } from '../utils/routing.ts'
@@ -25,13 +27,14 @@ export function LandingPage() {
   const [provider, setProvider] = useState<Provider>('local')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [projectName, setProjectName] = useState('')
-  const [selectedTemplateId, setSelectedTemplateId] = useState('webbrains.empty-project')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('webrains.empty-project')
   const [createMainPy, setCreateMainPy] = useState(true)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [pluginManagerOpen, setPluginManagerOpen] = useState(false)
   const [pluginQuery, setPluginQuery] = useState('')
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; project: ProjectSummary } | null>(null)
   const [projectDeleteTarget, setProjectDeleteTarget] = useState<ProjectSummary | null>(null)
+  const [notice, setNotice] = useState('')
   const clientId = getConfiguredGoogleClientId()
   const [connected, setConnected] = useState(isDriveConnected())
   const [loading, setLoading] = useState(true)
@@ -66,6 +69,15 @@ export function LandingPage() {
     }
   }, [refresh])
 
+  // Next-day load: an expired token can often be restored silently without showing the
+  // sign-in button first (the Google session cookie normally survives browser restarts).
+  useEffect(() => {
+    if (isDriveConnected()) return
+    void (async () => {
+      if (await tryRestoreDriveSession()) setConnected(true)
+    })()
+  }, [])
+
   const createProject = async () => {
     setBusy(true)
     setError('')
@@ -99,6 +111,24 @@ export function LandingPage() {
     } finally { setBusy(false) }
   }
 
+  const copyProjectToDrive = async (project: ProjectSummary) => {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      if (!connected) {
+        await connectDrive()
+        setConnected(true)
+      }
+      await migrateLocalProjectToDrive(project.id)
+      setProvider('drive')
+      setLoading(true)
+      setNotice(`"${project.name}" was copied to Google Drive. The local copy remains in this browser.`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not copy the project to Google Drive.')
+    } finally { setBusy(false) }
+  }
+
   const authorize = async () => {
     setBusy(true)
     setLoading(true)
@@ -115,7 +145,7 @@ export function LandingPage() {
 
   return <main className="landing-page">
     <header className="landing-header">
-      <a href={appUrl('/')} className="brand" onClick={(event) => { event.preventDefault(); navigateApp('/') }}><span>WebBrains</span></a>
+      <a href={appUrl('/')} className="brand" onClick={(event) => { event.preventDefault(); navigateApp('/') }}><span>WeBrains</span></a>
       <nav className="landing-nav" aria-label="Main navigation">
         <a href="#projects">Projects</a>
         <a href="#vision">Our vision</a>
@@ -144,7 +174,7 @@ export function LandingPage() {
 
       {provider === 'drive' && <section className="drive-setup" aria-label="Google Drive connection">
         <div className="drive-setup-icon">△</div>
-        <div className="drive-setup-copy"><strong>{connected ? 'Google Drive connected' : 'Sign in with Google'}</strong><span>{connected ? 'Projects are stored in WebBrains/projects in your Drive.' : clientId ? 'Authorize WebBrains with your Google account.' : 'Google sign-in needs to be enabled for this deployment.'}</span></div>
+        <div className="drive-setup-copy"><strong>{connected ? 'Google Drive connected' : 'Sign in with Google'}</strong><span>{connected ? 'Projects are stored in WeBrains/projects in your Drive.' : clientId ? 'Authorize WeBrains with your Google account.' : 'Google sign-in needs to be enabled for this deployment.'}</span></div>
         <button type="button" className="secondary-button google-signin-button" disabled={busy} onClick={() => void authorize()}>{busy ? 'Connecting…' : connected ? 'Reconnect Google' : 'Sign in with Google'}<span>↗</span></button>
       </section>}
 
@@ -169,11 +199,12 @@ export function LandingPage() {
               </button>
               <button type="button" className="project-actions-button" aria-label={`Actions for ${project.name}`} title="Project actions" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setProjectContextMenu({ x: rect.right - 4, y: rect.bottom, project }) }}>⋮</button>
             </div>)}</div>
-            : <div className="empty-projects"><span>＋</span><strong>No projects yet</strong><small>Create a project to start working in WebBrains.</small></div>}
+            : <div className="empty-projects"><span>＋</span><strong>No projects yet</strong><small>Create a project to start working in WeBrains.</small></div>}
 
       {projectContextMenu && <>
         <button type="button" className="project-context-dismiss" aria-label="Close project menu" onClick={() => setProjectContextMenu(null)} />
         <div className="project-context-menu" role="menu" style={{ left: projectContextMenu.x, top: projectContextMenu.y }}>
+          {projectContextMenu.project.provider === 'local' && <button type="button" role="menuitem" disabled={busy} onClick={() => { const project = projectContextMenu.project; setProjectContextMenu(null); void copyProjectToDrive(project) }}>Copy to Google Drive…</button>}
           <button type="button" role="menuitem" onClick={() => { setProjectDeleteTarget(projectContextMenu.project); setProjectContextMenu(null); setError('') }}>Delete Project…</button>
         </div>
       </>}
@@ -186,8 +217,9 @@ export function LandingPage() {
         </section>
       </div>}
       {error && !createDialogOpen && !projectDeleteTarget && <div className="landing-error" role="alert">{error}</div>}
+      {notice && !createDialogOpen && !projectDeleteTarget && <div className="landing-error" role="status">{notice}</div>}
       <div className="landing-actions">
-        <button type="button" className="secondary-button create-project-button" disabled={provider === 'drive' && !connected} onClick={() => { setError(''); setProjectName('New project'); setSelectedTemplateId('webbrains.empty-project'); setCreateMainPy(true); setCreateDialogOpen(true) }}><span>＋</span> Create project</button>
+        <button type="button" className="secondary-button create-project-button" disabled={provider === 'drive' && !connected} onClick={() => { setError(''); setProjectName('New project'); setSelectedTemplateId('webrains.empty-project'); setCreateMainPy(true); setCreateDialogOpen(true) }}><span>＋</span> Create project</button>
         <button type="button" className="primary-button" disabled={!projects.length} onClick={() => projects[0] && openProject(projects[0])}>Open recent <span>→</span></button>
       </div>
       <section id="vision" className="landing-vision">
@@ -234,19 +266,19 @@ export function LandingPage() {
             </nav>
             <section className="wizard-settings">
               <label className="wizard-field"><span>Project name</span><input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} aria-label="Project name" placeholder="My project" /></label>
-              <div className="wizard-field"><span>Location</span><div className="wizard-location"><span>{provider === 'local' ? '▣' : '△'}</span><span>{provider === 'local' ? 'This browser · IndexedDB' : 'Google Drive · WebBrains/projects'}</span><small>Managed</small></div></div>
+              <div className="wizard-field"><span>Location</span><div className="wizard-location"><span>{provider === 'local' ? '▣' : '△'}</span><span>{provider === 'local' ? 'This browser · IndexedDB' : 'Google Drive · WeBrains/projects'}</span><small>Managed</small></div></div>
               {selectedTemplateId === 'python-ce.pure-python' && <>
                 <div className="template-card"><span className="python-logo">Py</span><span><strong>Python interpreter</strong><small>Not configured. This browser build does not access a local Python interpreter.</small></span></div>
                 <label className="wizard-sample-option"><input type="checkbox" checked={createMainPy} onChange={(event) => setCreateMainPy(event.target.checked)} /><span>Create a main.py welcome script</span></label>
               </>}
-              <div className="wizard-note"><span>ⓘ</span><span>{selectedTemplateId === 'webbrains.empty-project' ? 'Creates an empty workspace without a configured language or SDK.' : 'The Python project type is contributed by the Python CE plugin. Interpreter creation and execution are not available yet.'}</span></div>
+              <div className="wizard-note"><span>ⓘ</span><span>{selectedTemplateId === 'webrains.empty-project' ? 'Creates an empty workspace without a configured language or SDK.' : 'The Python project type is contributed by the Python CE plugin. Interpreter creation and execution are not available yet.'}</span></div>
             </section>
           </div>
           {error && <div className="landing-error" role="alert">{error}</div>}
           <div className="create-dialog-actions"><button type="button" className="dialog-cancel" onClick={() => setCreateDialogOpen(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !projectName.trim()}>{busy ? 'Creating…' : 'Create'} <span>→</span></button></div>
         </form>
       </div>}
-      <footer className="landing-footer"><span>WebBrains <span className="footer-dot">·</span> Workspace runs in your browser</span><a href="https://www.jetbrains.com/idea/" target="_blank" rel="noreferrer">IntelliJ IDEA inspired <span>↗</span></a></footer>
+      <footer className="landing-footer"><span>WeBrains <span className="footer-dot">·</span> Workspace runs in your browser</span><a href="https://www.jetbrains.com/idea/" target="_blank" rel="noreferrer">IntelliJ IDEA inspired <span>↗</span></a></footer>
     </section>
   </main>
 }

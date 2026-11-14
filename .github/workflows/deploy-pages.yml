@@ -1,4 +1,4 @@
-name: Build and deploy WebBrains
+name: Build and deploy WeBrains
 
 on:
   push:

@@ -14,5 +14,5 @@ export default function App() {
   const { pathname } = location
   if (pathname === '/ide' || pathname === '/ide/') return <IdePage />
   if (pathname === '/' || pathname === '') return <LandingPage />
-  return <main className="route-fallback"><span className="brand-mark">W</span><h1>Page not found</h1><p>That WebBrains route does not exist.</p><a className="primary-button" href={appUrl('/')}>Return to projects</a></main>
+  return <main className="route-fallback"><span className="brand-mark">W</span><h1>Page not found</h1><p>That WeBrains route does not exist.</p><a className="primary-button" href={appUrl('/')}>Return to projects</a></main>
 }

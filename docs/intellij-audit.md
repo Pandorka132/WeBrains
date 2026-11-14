@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-10-18
 
-WebBrains is a static React/TypeScript application. This audit distinguishes behavior from visual resemblance: there is no JVM runtime, Swing/AWT, arbitrary IntelliJ plugin JAR loading, or local OS process execution.
+WeBrains is a static React/TypeScript application. This audit distinguishes behavior from visual resemblance: there is no JVM runtime, Swing/AWT, arbitrary IntelliJ plugin JAR loading, or local OS process execution.
 
 ## Changes made in this pass
 
@@ -36,7 +36,7 @@ WebBrains is a static React/TypeScript application. This audit distinguishes beh
 
 The official SDK describes tool windows and their anchors; current source checks included [`ToolWindowPaneNewButtonManager`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowPaneNewButtonManager.kt), [`ToolWindowPane`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowPane.kt), [`ToolWindowDragHelper`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowDragHelper.kt), [`ToolWindowDropArea`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowDropArea.kt), [`ToolWindowLeftToolbar`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowLeftToolbar.kt), [`ToolWindowRightToolbar`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowRightToolbar.kt), and [`ToolWindowHeader`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/toolWindow/ToolWindowHeader.kt). These confirm that the new UI uses left/right stripes, that bottom-anchored tools are represented in the left toolbar when the horizontal stripe extension is absent, and that drag targets split an area into halves. See [Tool Windows](https://plugins.jetbrains.com/docs/intellij/tool-windows.html) and [UI overview](https://plugins.jetbrains.com/docs/intellij/ui-overview.html).
 
-WebBrains models upper/lower side-panel groups on both the left and right stripes; both stay in the upper section, with the divider between those two groups. Bottom-panel tools are a separate group at the very bottom of each vertical stripe (left stripe for the bottom group, right stripe for the bottom-right group); there is no horizontal bottom icon stripe. Tool panels still share the common panel renderer, with draggable icons/headers, resize handles, and persisted tool-to-dock assignments. Layout v3 assignments that incorrectly placed Problems/Terminal/Run/Debug in lower side-panel groups migrate into their corresponding bottom-panel groups. The empty right side intentionally remains a drop target. Tool-window factories, lazy content creation, content-manager tabs, floating/detached windows, full focus behavior, and all IntelliJ stripe policies are not implemented.
+WeBrains models upper/lower side-panel groups on both the left and right stripes; both stay in the upper section, with the divider between those two groups. Bottom-panel tools are a separate group at the very bottom of each vertical stripe (left stripe for the bottom group, right stripe for the bottom-right group); there is no horizontal bottom icon stripe. Tool panels still share the common panel renderer, with draggable icons/headers, resize handles, and persisted tool-to-dock assignments. Layout v3 assignments that incorrectly placed Problems/Terminal/Run/Debug in lower side-panel groups migrate into their corresponding bottom-panel groups. The empty right side intentionally remains a drop target. Tool-window factories, lazy content creation, content-manager tabs, floating/detached windows, full focus behavior, and all IntelliJ stripe policies are not implemented.
 
 ### Documents, editor, and language services
 
@@ -50,7 +50,7 @@ Memory, BrowserFS/IndexedDB, and Google Drive adapters share a virtual filesyste
 
 ### Services, plugins, lifetimes, and threading
 
-WebBrains implements explicit disposable scopes, typed message topics, in-memory service containers, extension/action registries, project/module objects, and a metadata-only plugin catalog. IntelliJ services have application/project/module scopes, lazy initialization, descriptor-driven extension registration, and plugin-unload semantics. WebBrains does not instantiate arbitrary descriptor class names, load JARs, execute Java/Kotlin plugin code, or guarantee upstream service lookup/override semantics. See [Services](https://plugins.jetbrains.com/docs/intellij/plugin-services.html) and [Disposer / Disposable](https://plugins.jetbrains.com/docs/intellij/disposers.html).
+WeBrains implements explicit disposable scopes, typed message topics, in-memory service containers, extension/action registries, project/module objects, and a metadata-only plugin catalog. IntelliJ services have application/project/module scopes, lazy initialization, descriptor-driven extension registration, and plugin-unload semantics. WeBrains does not instantiate arbitrary descriptor class names, load JARs, execute Java/Kotlin plugin code, or guarantee upstream service lookup/override semantics. See [Services](https://plugins.jetbrains.com/docs/intellij/plugin-services.html) and [Disposer / Disposable](https://plugins.jetbrains.com/docs/intellij/disposers.html).
 
 IntelliJ uses an EDT/background-thread model and read/write access rules for PSI, VFS, and project data. A browser needs different concurrency contracts: expensive parsing/indexing should use Web Workers or cancellable asynchronous work, not a mechanical copy of Java read/write locks. See the [Threading Model](https://plugins.jetbrains.com/docs/intellij/threading-model.html). A static site cannot run arbitrary local processes or JVM bytecode; Terminal/Run/Debug remain placeholders unless implemented with explicit browser-native or separately designed remote execution.
 
@@ -82,13 +82,13 @@ Browser-only storage durability, OAuth popup behavior, and automated pointer int
 
 ## Deep editor ownership audit: IntelliJ Platform vs. Python CE
 
-**Audited:** 2026-10-19. The concrete plugin target is Python Community Edition `263.7031.23` (`PythonCore`), from the locally available plugin artifact. The findings below are based on its embedded `META-INF/plugin.xml` module descriptors and class inventory, cross-checked against the IntelliJ Platform Plugin SDK. This is a responsibility map, not a claim that WebBrains already implements these APIs.
+**Audited:** 2026-10-19. The concrete plugin target is Python Community Edition `263.7031.23` (`PythonCore`), from the locally available plugin artifact. The findings below are based on its embedded `META-INF/plugin.xml` module descriptors and class inventory, cross-checked against the IntelliJ Platform Plugin SDK. This is a responsibility map, not a claim that WeBrains already implements these APIs.
 
 ### The ownership rule
 
 The editor is a platform engine with language-plugin contributions. The platform owns generic editing mechanics and the extension-point infrastructure; Python CE registers Python-specific implementations into that infrastructure. A feature can be split across both layers: the platform owns the interaction lifecycle and rendering, while Python CE decides what the interaction means for Python.
 
-| Capability | Platform/editor responsibility | Python CE responsibility | WebBrains status |
+| Capability | Platform/editor responsibility | Python CE responsibility | WeBrains status |
 |---|---|---|---|
 | Text input, caret, selection, document changes | Document/editor model, caret and selection, keyboard dispatch, edit transactions, scrolling, rendering and lifecycle | Python-specific handlers may intercept/augment certain actions | Basic textarea + overlay and a minimal document/caret model only; no IntelliJ-equivalent editor engine |
 | Enter and indentation | Runs the Enter-handler pipeline, applies editor/code-style settings, inserts newline/indent, handles selection and caret consistently | `PythonEnterHandler` and `PyEnterAtIndentHandler` provide Python-aware behavior; `PyLanguageCodeStyleSettingsProvider`, code-style settings and Python formatting support influence indentation | `CodeEditor.tsx` now dispatches through the platform `EditorKeyHandlerRegistry`. Python CE contributes a transitional regex-based Enter handler; it is not the original Python CE handler and is not behaviorally equivalent |
@@ -117,7 +117,7 @@ The descriptor does not describe a single “Python lexer plugin.” It register
 
 The package's embedded module descriptors also include auxiliary languages and integrations (for example Python stubs, doctests, requirements, regular expressions, LSP and Ruff-related modules). Aggregate descriptor counts therefore must not be interpreted as a count of Python-only features or as proof that every optional integration is available in every product configuration.
 
-### Consequences for WebBrains architecture
+### Consequences for WeBrains architecture
 
 1. **Remove Python semantics from `CodeEditor`.** The editor should dispatch platform editing commands and consume registered language/editor extensions. It should not know Python keywords, parse Python block headers, or implement a second Python-specific rule set in React.
 2. **Do not treat the key-handler registry as IntelliJ compatibility by itself.** The new `EditorKeyHandlerRegistry` is a first platform seam with ordering, disposable registrations, validated edit ranges, selection-aware edits and fallback Enter/Tab commands. It still lacks IntelliJ command/write transaction semantics, the full smart-key delegate pipeline, complete code-style settings and keymap behavior. Python's current Enter contribution remains a temporary regex adapter until the original handler's dependencies and contract are runnable.

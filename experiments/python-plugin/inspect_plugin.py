@@ -119,7 +119,7 @@ def main() -> int:
     print(
         "\nThis is metadata inspection only. It does not prove that plugin classes "
         "can run in a browser or that their IntelliJ Platform dependencies are "
-        "available in WebBrains."
+        "available in WeBrains."
     )
     return 0
 

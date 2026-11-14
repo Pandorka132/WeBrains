@@ -17,12 +17,12 @@ self.onmessage = async (event: MessageEvent<DiagnoseRequest>) => {
   try {
     const { loadPyodide } = await import(/* @vite-ignore */ pyodideModuleURL) as { loadPyodide: LoadPyodide }
     const pyodide = await (pyodidePromise ??= loadPyodide({ indexURL }))
-    pyodide.globals.set('__webbrains_diagnostic_source', request.source)
+    pyodide.globals.set('__webrains_diagnostic_source', request.source)
     try {
       const serialized = pyodide.runPython(`
 import json
 try:
-    compile(__webbrains_diagnostic_source, '<editor>', 'exec')
+    compile(__webrains_diagnostic_source, '<editor>', 'exec')
     json.dumps(None)
 except SyntaxError as error:
     json.dumps({
@@ -37,7 +37,7 @@ except SyntaxError as error:
       const diagnostic = issue ? mapPythonSyntaxError(request.source, issue) : null
       self.postMessage({ type: 'diagnostics', requestId: request.requestId, diagnostics: diagnostic ? [diagnostic] : [] })
     } finally {
-      pyodide.globals.delete('__webbrains_diagnostic_source')
+      pyodide.globals.delete('__webrains_diagnostic_source')
     }
   } catch (error) {
     self.postMessage({ type: 'diagnostic-error', requestId: request.requestId, message: error instanceof Error ? error.message : String(error) })

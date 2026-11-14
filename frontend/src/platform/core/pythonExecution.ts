@@ -182,7 +182,7 @@ export class PyodidePythonExecutor implements RunExecutor<PythonRunOptions> {
   private ensureWorker(): Promise<Worker> {
     if (this.disposed) return Promise.reject(new Error('Python executor is disposed.'))
     if (this.readyPromise) return this.readyPromise
-    const worker = new Worker(new URL('./pyodide.worker.ts', import.meta.url), { type: 'module', name: 'webbrains-pyodide' })
+    const worker = new Worker(new URL('./pyodide.worker.ts', import.meta.url), { type: 'module', name: 'webrains-pyodide' })
     this.worker = worker
     this.readyPromise = new Promise<Worker>((resolve, reject) => {
       let ready = false

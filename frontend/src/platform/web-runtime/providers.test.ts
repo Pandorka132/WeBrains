@@ -1,9 +1,95 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { connectDrive, createDriveProject, deleteDriveProject, isDriveConnected, listDriveProjects, openDriveProject, openLocalProject } from './providers.ts'
+import { connectDrive, createDriveProject, deleteDriveProject, isDriveConnected, listDriveProjects, openDriveProject, openLocalProject, tryRestoreDriveSession } from './providers.ts'
+
+test('expired Drive tokens renew silently with a prompt-less token request, and 401 responses retry once after renewal', async () => {
+  const storage = new TestStorage()
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalFetch = globalThis.fetch
+  let oauthCallback: ((response: { access_token?: string; expires_in?: number; error?: string }) => void) | undefined
+  let initCalls = 0
+  const requestCalls: unknown[] = []
+  const authHeaders: string[] = []
+  let failNextRequest = false
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage })
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { google: { accounts: { oauth2: { initTokenClient: (options: { client_id: string; callback(response: { access_token?: string; expires_in?: number; error?: string }): void }) => {
+      initCalls += 1
+      assert.equal(options.client_id, 'web-client-id.apps.googleusercontent.com')
+      oauthCallback = options.callback
+      return { requestAccessToken: (requestOptions?: { prompt?: string }) => {
+        requestCalls.push(requestOptions)
+        oauthCallback?.({ access_token: `renewed-${initCalls}`, expires_in: 3600 })
+      } }
+    } } } } },
+  })
+  globalThis.fetch = async (_input, init) => {
+    authHeaders.push(new Headers(init?.headers).get('Authorization') ?? '')
+    if (failNextRequest) {
+      failNextRequest = false
+      return new Response('unauthorized', { status: 401 })
+    }
+    return new Response(JSON.stringify({ files: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  storage.setItem('webrains.drive.oauth', JSON.stringify({ accessToken: 'expired-token', expiresAt: Date.now() - 1000, clientId: 'web-client-id.apps.googleusercontent.com' }))
+  try {
+    assert.deepEqual(await listDriveProjects(), [])
+    assert.equal(initCalls, 1, 'an expired token must be renewed before the Drive API call')
+    assert.deepEqual(requestCalls, [{ prompt: '' }], 'silent renewal must not show a consent prompt')
+    assert.equal(authHeaders[0], 'Bearer renewed-1')
+    assert.equal((JSON.parse(storage.getItem('webrains.drive.oauth') ?? '{}') as { accessToken?: string }).accessToken, 'renewed-1')
+    failNextRequest = true
+    assert.deepEqual(await listDriveProjects(), [])
+    assert.equal(initCalls, 2, 'a 401 must trigger one silent renewal retry')
+    assert.equal(authHeaders.at(-1), 'Bearer renewed-2', 'the retried request must use the renewed token')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('an expired Drive session restores silently on the next-day page load', async () => {
+  const storage = new TestStorage()
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  let oauthCallback: ((response: { access_token?: string; expires_in?: number; error?: string }) => void) | undefined
+  let initCalls = 0
+  const requestCalls: unknown[] = []
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage })
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { google: { accounts: { oauth2: { initTokenClient: (options: { client_id: string; callback(response: { access_token?: string; expires_in?: number; error?: string }): void }) => {
+      initCalls += 1
+      assert.equal(options.client_id, 'web-client-id.apps.googleusercontent.com')
+      oauthCallback = options.callback
+      return { requestAccessToken: (requestOptions?: { prompt?: string }) => {
+        requestCalls.push(requestOptions)
+        oauthCallback?.({ access_token: `restored-${initCalls}`, expires_in: 3600 })
+      } }
+    } } } } },
+  })
+  storage.setItem('webrains.drive.oauth', JSON.stringify({ accessToken: 'expired-token', expiresAt: Date.now() - 1000, clientId: 'web-client-id.apps.googleusercontent.com' }))
+  try {
+    assert.equal(isDriveConnected(), false)
+    assert.equal(await tryRestoreDriveSession(), true)
+    assert.equal(initCalls, 1)
+    assert.deepEqual(requestCalls, [{ prompt: '' }])
+    assert.equal((JSON.parse(storage.getItem('webrains.drive.oauth') ?? '{}') as { accessToken?: string }).accessToken, 'restored-1')
+  } finally {
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
 
 test('local project ids cannot escape the BrowserFS project root', async () => {
-  await assert.rejects(openLocalProject('../../.webbrains-projects.json'), /Invalid local project id/)
+  await assert.rejects(openLocalProject('../../.webrains-projects.json'), /Invalid local project id/)
   await assert.rejects(openLocalProject('/projects/other'), /Invalid local project id/)
 })
 
@@ -117,13 +203,13 @@ test('Drive OAuth stores its token and expiry locally while project listing uses
     const componentsFolder = driveFolders.find((folder) => folder.name === 'components' && folder.parents?.includes(srcFolder.id))
     assert.ok(componentsFolder)
     assert.equal(driveRequests.filter((request) => request.url.includes('/upload/drive/v3/files')).length, 0, 'creating an empty project must not upload starter files')
-    const webBrainsFolder = driveFolders.find((folder) => folder.name === 'WebBrains')
-    const projectsFolder = driveFolders.find((folder) => folder.name === 'projects' && folder.parents?.includes(webBrainsFolder?.id ?? ''))
-    assert.ok(webBrainsFolder)
+    const webrainsFolder = driveFolders.find((folder) => folder.name === 'WeBrains')
+    const projectsFolder = driveFolders.find((folder) => folder.name === 'projects' && folder.parents?.includes(webrainsFolder?.id ?? ''))
+    assert.ok(webrainsFolder)
     assert.ok(projectsFolder)
     assert.ok(projectFolder?.parents?.includes(projectsFolder.id))
-    assert.ok(driveRequests.some((request) => request.url.includes('q=') && decodeURIComponent(request.url).includes("'root' in parents and name='WebBrains'")))
-    assert.ok(driveRequests.some((request) => request.url.includes('q=') && decodeURIComponent(request.url).includes(`'${webBrainsFolder.id}' in parents and name='projects'`)))
+    assert.ok(driveRequests.some((request) => request.url.includes('q=') && decodeURIComponent(request.url).includes("'root' in parents and name='WeBrains'")))
+    assert.ok(driveRequests.some((request) => request.url.includes('q=') && decodeURIComponent(request.url).includes(`'${webrainsFolder.id}' in parents and name='projects'`)))
     await workspace.files.deleteEntry('/Drive Test/src/components')
     assert.ok(driveRequests.some((request) => request.method === 'PATCH' && request.url.endsWith(`/files/${componentsFolder.id}`) && JSON.parse(request.body).trashed === true), 'deleting a Drive entry should move it to Drive trash')
     await deleteDriveProject(workspace.id)
@@ -134,11 +220,11 @@ test('Drive OAuth stores its token and expiry locally while project listing uses
     assert.equal(storedValues.length, 1)
     assert.ok(storedValues.some(([key, value]) => key.includes('oauth') && value.includes('test-token')))
     assert.ok(storedValues.every(([, value]) => !value.includes('README') && !value.includes('project files')))
-    storage.setItem('webbrains.drive.oauth', JSON.stringify({ accessToken: 'expired-token', expiresAt: Date.now() - 1000 }))
+    storage.setItem('webrains.drive.oauth', JSON.stringify({ accessToken: 'expired-token', expiresAt: Date.now() - 1000 }))
     assert.equal(isDriveConnected(), false)
-    storage.setItem('webbrains.drive.oauth', JSON.stringify({ accessToken: 'malformed-token' }))
+    storage.setItem('webrains.drive.oauth', JSON.stringify({ accessToken: 'malformed-token' }))
     assert.equal(isDriveConnected(), false)
-    assert.equal(storage.getItem('webbrains.drive.oauth'), null)
+    assert.equal(storage.getItem('webrains.drive.oauth'), null)
   } finally {
     globalThis.fetch = originalFetch
     if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)

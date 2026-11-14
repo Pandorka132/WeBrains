@@ -339,12 +339,12 @@ test('Python worker project snapshot never reads environment files', async () =>
 })
 
 test('plugin runtime reports only active plugin manifests and excludes the WeBrains platform core', () => {
-  assert.deepEqual(pluginRuntime.activePluginIds(), ['WebBrains'])
-  assert.deepEqual(pluginRuntime.activeManifests().map(({ id }) => id), ['WebBrains'])
+  assert.deepEqual(pluginRuntime.activePluginIds(), ['WeBrains'])
+  assert.deepEqual(pluginRuntime.activeManifests().map(({ id }) => id), ['WeBrains'])
   assert.equal(pluginRuntime.activeManifests()[0]?.kind, 'platform')
   assert.equal(projectTemplates.find('python-ce.pure-python'), undefined)
-  assert.equal(projectTemplates.find('webbrains.empty-project')?.pluginId, 'WebBrains')
-  assert.equal(projectTemplates.find('webbrains.empty-project')?.files.length, 0)
+  assert.equal(projectTemplates.find('webrains.empty-project')?.pluginId, 'WeBrains')
+  assert.equal(projectTemplates.find('webrains.empty-project')?.files.length, 0)
   assert.equal(pluginRuntime.catalog.find('PythonCore'), undefined)
   assert.equal(pluginRuntime.fileTypes.find('python-ce.file-type'), undefined)
   assert.deepEqual(pluginRuntime.editorCompletionContributors.forLanguage('python'), [])
