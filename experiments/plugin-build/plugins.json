@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "pluginXmlId": "PythonCore",
+      "version": "263.7307.112",
+      "filename": "python-ce-263.7307.112.zip"
+    }
+  ]
+}

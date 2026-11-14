@@ -403,5 +403,121 @@
     "allDeclaredConstructors": true,
     "allDeclaredFields": true,
     "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.python.pyproject.model.evolution.EvoPyProjectModel",
+    "fields": [
+      {
+        "name": "state"
+      },
+      {
+        "name": "project"
+      }
+    ]
+  },
+  {
+    "name": "com.jetbrains.python.psi.impl.PyImportResolver",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.python.community.helpersLocator.PythonHelpersLocator",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.python.community.helpersLocator.PythonHelpersLocatorDefault",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.resolve.PyThirdPartySdkDetector",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.python.sdk.backend.PythonEnvironmentProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.intellij.python.sdk.backend.evolution.PyEvoEnvironmentProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.codeInsight.PyDataclassParametersProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.codeInsight.typing.PyTypeHintProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.PyCustomPackageIdentifier",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.PyKnownDecoratorProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.impl.PyKeywordArgumentProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.impl.PyResolveResultRater",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.impl.PyTypeProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.impl.references.PyReferenceCustomTargetChecker",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.resolve.PyCanonicalPathProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.types.PyClassMembersProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.types.PyDictLiteralPromotionExtension",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.types.PyEnumMemberDeclarationProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.types.PyModuleMembersProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.types.PyTypeCheckerExtension",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.psi.types.engine.PyTypeEngineProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.pyi.PyiStubSuppressor",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.sdk.PySdkProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.sdk.filter.TargetSupportsFilterExtension",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.sdk.flavors.PythonFlavorProvider",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "com.jetbrains.python.sdk.flavors.PythonSdkFlavor",
+    "allDeclaredMethods": true
   }
 ]

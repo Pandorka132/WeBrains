@@ -54,3 +54,4 @@ experiments/python-plugin/extracted-distribution/
 *.class
 *.wasm
 *.jar
+experiments/plugin-build/toolchain-release/

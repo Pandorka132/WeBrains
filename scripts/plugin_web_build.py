@@ -174,6 +174,40 @@ def extract_plugin_jars(archive: Path, destination: Path, include_globs: list[st
     return extracted
 
 
+def extract_resource_directories(archive: Path, destination: Path, specifications: list[dict[str, Any]]) -> dict[str, int]:
+    """Copy explicitly selected plugin resources onto the Web Image classpath."""
+    totals: dict[str, int] = {}
+    if not specifications:
+        return totals
+    with zipfile.ZipFile(archive) as outer:
+        names = sorted(outer.namelist())
+        for specification in specifications:
+            archive_prefix = str(specification.get("archivePrefix", ""))
+            resource_prefix = str(specification.get("resourcePrefix", "")).strip("/")
+            manifest_path = str(specification.get("manifestPath", "")).strip("/")
+            suffixes = tuple(str(item) for item in specification.get("includeSuffixes", []))
+            if not archive_prefix or not resource_prefix or not manifest_path or not suffixes:
+                raise BuildError("Each resourceDirectories entry requires archivePrefix, resourcePrefix, manifestPath, and includeSuffixes.")
+            selected = [name for name in names if name.startswith(archive_prefix) and name.endswith(suffixes)]
+            if not selected:
+                raise BuildError(f"No plugin resources matched archive prefix {archive_prefix!r} and suffixes {suffixes!r}.")
+            manifest_entries: list[str] = []
+            for name in selected:
+                relative = PurePosixPath(name[len(archive_prefix):])
+                if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+                    raise BuildError(f"Unsafe resource archive path: {name}")
+                target_relative = PurePosixPath(resource_prefix, *relative.parts)
+                target = destination.joinpath(*target_relative.parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(outer.read(name))
+                manifest_entries.append(target_relative.as_posix())
+            manifest = destination / manifest_path
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("\n".join(manifest_entries) + "\n", encoding="utf-8")
+            totals[resource_prefix] = len(manifest_entries)
+    return totals
+
+
 def resolve_graal(profile: dict[str, Any], cli_value: str | None) -> Path:
     configured = cli_value or os.environ.get("WEB_IMAGE") or profile.get("webImage")
     candidates: list[Path] = []
@@ -385,6 +419,13 @@ def build(args: argparse.Namespace) -> int:
     compile_classpath_text = os.pathsep.join(str(item) for item in compile_classpath)
     classes = output / "classes"
     classes.mkdir()
+    extracted_resources = extract_resource_directories(
+        archive, classes, profile.get("resourceDirectories", [])
+    )
+    if extracted_resources:
+        print("Extracted classpath resources: " + ", ".join(
+            f"{prefix} ({count} files)" for prefix, count in sorted(extracted_resources.items())
+        ))
     jdk_home = resolve_jdk(args.jdk, profile)
     javac = resolve_javac(args.javac, profile, jdk_home)
     java_env = os.environ.copy()

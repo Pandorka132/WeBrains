@@ -26,6 +26,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
@@ -41,6 +45,35 @@ jobs:
       - name: Verify static-host routing
         working-directory: frontend
         run: npm run verify:routing
+      - name: Download and verify prebuilt plugin toolchain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOLCHAIN_RELEASE: webrains-toolchain-v1
+        run: |
+          toolchain_dir="$RUNNER_TEMP/webrains-toolchain"
+          mkdir -p "$toolchain_dir"
+          gh release download "$TOOLCHAIN_RELEASE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'webrains-toolchain-linux-x86_64-*' \
+            --dir "$toolchain_dir"
+          (
+            cd "$toolchain_dir"
+            sha256sum -c webrains-toolchain-linux-x86_64-SHA256SUMS
+          )
+          tar --zstd -xf "$toolchain_dir/webrains-toolchain-linux-x86_64-runtime.tar.zst" -C "$GITHUB_WORKSPACE"
+          tar --zstd -xf "$toolchain_dir/webrains-toolchain-linux-x86_64-platform.tar.zst" -C "$GITHUB_WORKSPACE"
+          web_image="$GITHUB_WORKSPACE/toolchain/graalvm/lib/svm/tools/web-image/bin/web-image"
+          plugin_jdk="$GITHUB_WORKSPACE/toolchain/jdk"
+          test -x "$web_image"
+          test -x "$plugin_jdk/bin/java"
+          test -x "$plugin_jdk/bin/javac"
+          test -x "$GITHUB_WORKSPACE/experiments/python-plugin/artifacts/.tools/binaryen/bin/wasm-as"
+          echo "WEB_IMAGE=$web_image" >> "$GITHUB_ENV"
+          echo "PLUGIN_JDK=$plugin_jdk" >> "$GITHUB_ENV"
+      - name: Download pinned raw plugin distributions
+        run: python scripts/download_plugins.py
+      - name: Build and runtime-test browser plugin capabilities
+        run: python scripts/build_plugins.py --web-image "$WEB_IMAGE" --jdk "$PLUGIN_JDK"
       - name: Build for GitHub Pages
         working-directory: frontend
         env:

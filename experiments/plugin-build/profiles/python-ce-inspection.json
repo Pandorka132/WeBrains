@@ -43,7 +43,8 @@
     "-H:ConfigurationFileDirectories=experiments/plugin-build/profiles/python-ce-completion-metadata",
     "-H:+AddAllCharsets",
     "-H:IncludeResourceBundles=messages.PyParserBundle,localization//messages/PyParserBundle,messages.PyPsiBundle,localization//messages/PyPsiBundle,messages.InspectionsBundle,localization//messages/InspectionsBundle,sun.awt.resources.awt",
-    "-H:IncludeResources=.*PyParserBundle.properties"
+    "-H:IncludeResources=.*PyParserBundle.properties",
+    "-H:IncludeResources=webrains/typeshed/stdlib/.*[.]pyi|webrains/typeshed-stdlib[.]files"
   ],
   "runtimeTest": {
     "expectedOutput": "INSPECTION_JSON:[{\"startOffset\":3,\"endOffset\":6,\"message\":\"Unresolved reference 'Tru'\"}]"
@@ -58,5 +59,15 @@
   "frontendEnabled": true,
   "browserApi": true,
   "browserWorkerTemplate": "experiments/plugin-build/templates/python-ce-inspection.worker.js",
-  "browserWorkerName": "python-ce-inspection.worker.js"
+  "browserWorkerName": "python-ce-inspection.worker.js",
+  "resourceDirectories": [
+    {
+      "archivePrefix": "python-ce/helpers/typeshed/stdlib/",
+      "resourcePrefix": "webrains/typeshed/stdlib",
+      "manifestPath": "webrains/typeshed-stdlib.files",
+      "includeSuffixes": [
+        ".pyi"
+      ]
+    }
+  ]
 }

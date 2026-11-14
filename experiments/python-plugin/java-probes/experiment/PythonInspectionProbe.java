@@ -13,6 +13,13 @@ import com.intellij.mock.MockApplication;
 import com.intellij.mock.MockProject;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.ExtensionPoint;
+import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.projectRoots.SdkType;
+import com.intellij.openapi.projectRoots.SdkTypeId;
+import com.intellij.openapi.roots.OrderRootType;
+import com.intellij.openapi.roots.RootProvider;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.registry.RegistryKeyBean;
 import com.intellij.openapi.util.TextRange;
@@ -45,6 +52,245 @@ public final class PythonInspectionProbe {
         public <T> Object getServiceAsync(Class<T> serviceClass,
                                           kotlin.coroutines.Continuation<? super T> continuation) {
             return getService(serviceClass);
+        }
+    }
+
+    /** Minimal SDK object for the isolated test harness; production SDK resolution stays untouched. */
+    private static final class TypeshedSdk extends UserDataHolderBase implements Sdk {
+        private final SdkTypeId sdkType;
+        private final RootProvider rootProvider;
+        private final VirtualFile root;
+        private final String homePath;
+
+        TypeshedSdk(SdkTypeId sdkType, VirtualFile root) {
+            this.sdkType = sdkType;
+            this.root = root;
+            this.homePath = root.getUrl();
+            this.rootProvider = new RootProvider() {
+                @Override public String[] getUrls(OrderRootType type) {
+                    return type == OrderRootType.CLASSES ? new String[]{root.getUrl()} : new String[0];
+                }
+                @Override public VirtualFile[] getFiles(OrderRootType type) {
+                    return type == OrderRootType.CLASSES ? new VirtualFile[]{root} : VirtualFile.EMPTY_ARRAY;
+                }
+                @Override public void addRootSetChangedListener(RootSetChangedListener listener) { }
+                @Override public void addRootSetChangedListener(RootSetChangedListener listener,
+                        com.intellij.openapi.Disposable parentDisposable) { }
+                @Override public void removeRootSetChangedListener(RootSetChangedListener listener) { }
+            };
+        }
+
+        @Override public SdkTypeId getSdkType() { return sdkType; }
+        @Override public String getName() { return "WeBrains Typeshed test SDK"; }
+        @Override public String getVersionString() { return "3.13"; }
+        @Override public String getHomePath() { return homePath; }
+        @Override public VirtualFile getHomeDirectory() { return root; }
+        @Override public RootProvider getRootProvider() { return rootProvider; }
+        @Override public com.intellij.openapi.projectRoots.SdkModificator getSdkModificator() {
+            throw new UnsupportedOperationException("The test Typeshed SDK is immutable");
+        }
+        @Override public com.intellij.openapi.projectRoots.SdkAdditionalData getSdkAdditionalData() { return null; }
+        @Override public Sdk clone() { return this; }
+    }
+
+    private static final class TypeshedPythonRuntimeService extends com.jetbrains.python.PythonRuntimeService {
+        private final com.jetbrains.python.PythonRuntimeService delegate;
+        private final Sdk typeshedSdk;
+
+        TypeshedPythonRuntimeService(com.jetbrains.python.PythonRuntimeService delegate, Sdk typeshedSdk) {
+            this.delegate = delegate;
+            this.typeshedSdk = typeshedSdk;
+        }
+
+        @Override public Sdk getConsoleSdk(com.intellij.psi.PsiElement element) {
+            Sdk consoleSdk = delegate.getConsoleSdk(element);
+            if (consoleSdk != null) {
+                System.out.println("TYPESHED-SDK: using original console SDK " + consoleSdk.getName());
+                return consoleSdk;
+            }
+            var project = element.getProject();
+            if (com.intellij.openapi.roots.ProjectRootManager.getInstance(project).getProjectSdk() != null) return null;
+            if (com.jetbrains.python.psi.resolve.MainPythonSdkKt.mainPythonSdk(project) != null) return null;
+            System.out.println("TYPESHED-SDK: supplying fallback to " + element.getClass().getSimpleName());
+            return typeshedSdk;
+        }
+
+        @Override public com.jetbrains.python.psi.LanguageLevel getLanguageLevelForSdk(Sdk sdk) {
+            return sdk == typeshedSdk
+                    ? com.jetbrains.python.psi.LanguageLevel.PYTHON313
+                    : delegate.getLanguageLevelForSdk(sdk);
+        }
+    }
+
+    /** Read-only VirtualFile tree backed by the Typeshed resources embedded in the Web Image. */
+    private static final class TypeshedVirtualFileSystem extends com.intellij.openapi.vfs.DeprecatedVirtualFileSystem {
+        private TypeshedVirtualFile root;
+
+        void setRoot(TypeshedVirtualFile root) { this.root = root; }
+        @Override public String getProtocol() { return "webrains-typeshed"; }
+        @Override public VirtualFile findFileByPath(String path) {
+            if (root == null || path == null) return null;
+            String normalized = path.replace('\\', '/');
+            if (normalized.equals("/") || normalized.equals("/stdlib") || normalized.equals("stdlib")) return root;
+            String relative = normalized.startsWith("/stdlib/") ? normalized.substring("/stdlib/".length())
+                    : normalized.startsWith("stdlib/") ? normalized.substring("stdlib/".length())
+                    : normalized.startsWith("/") ? normalized.substring(1) : normalized;
+            return root.findFileByRelativePath(relative);
+        }
+        @Override public void refresh(boolean asynchronous) { }
+        @Override public VirtualFile refreshAndFindFileByPath(String path) { return findFileByPath(path); }
+        @Override public void addVirtualFileListener(com.intellij.openapi.vfs.VirtualFileListener listener) { }
+        @Override public void removeVirtualFileListener(com.intellij.openapi.vfs.VirtualFileListener listener) { }
+    }
+
+    private static final class TypeshedVirtualFile extends VirtualFile {
+        private final TypeshedVirtualFileSystem fileSystem;
+        private final TypeshedVirtualFile parent;
+        private final String name;
+        private final String path;
+        private final boolean directory;
+        private final java.util.LinkedHashMap<String, TypeshedVirtualFile> children;
+        private final byte[] content;
+
+        private TypeshedVirtualFile(TypeshedVirtualFileSystem fileSystem, TypeshedVirtualFile parent,
+                String name, boolean directory, byte[] content) {
+            this.fileSystem = fileSystem;
+            this.parent = parent;
+            this.name = name;
+            this.path = parent == null ? "/stdlib" : parent.path + "/" + name;
+            this.directory = directory;
+            this.content = content == null ? new byte[0] : content;
+            this.children = directory ? new java.util.LinkedHashMap<>() : null;
+        }
+
+        static TypeshedVirtualFile directory(TypeshedVirtualFileSystem fs, TypeshedVirtualFile parent, String name) {
+            return new TypeshedVirtualFile(fs, parent, name, true, null);
+        }
+        static TypeshedVirtualFile file(TypeshedVirtualFileSystem fs, TypeshedVirtualFile parent, String name, byte[] content) {
+            return new TypeshedVirtualFile(fs, parent, name, false, content);
+        }
+        TypeshedVirtualFile ensureDirectory(String childName) {
+            return children.computeIfAbsent(childName, name -> directory(fileSystem, this, name));
+        }
+        void addFile(String childName, byte[] bytes) {
+            if (children.putIfAbsent(childName, file(fileSystem, this, childName, bytes)) != null) {
+                throw new IllegalStateException("Duplicate Typeshed entry: " + path + "/" + childName);
+            }
+        }
+        @Override public String getName() { return name; }
+        @Override public com.intellij.openapi.fileTypes.FileType getFileType() {
+            return !directory && name.endsWith(".pyi")
+                    ? com.jetbrains.python.PythonFileType.INSTANCE
+                    : super.getFileType();
+        }
+        @Override public com.intellij.openapi.vfs.VirtualFileSystem getFileSystem() { return fileSystem; }
+        @Override public String getPath() { return path; }
+        @Override public boolean isWritable() { return false; }
+        @Override public boolean isDirectory() { return directory; }
+        @Override public boolean isValid() { return true; }
+        @Override public VirtualFile getParent() { return parent; }
+        @Override public VirtualFile[] getChildren() {
+            return directory ? children.values().toArray(VirtualFile[]::new) : VirtualFile.EMPTY_ARRAY;
+        }
+        @Override public java.io.OutputStream getOutputStream(Object requestor, long newModificationStamp, long newTimeStamp)
+                throws java.io.IOException {
+            throw new java.io.IOException("Typeshed resources are read-only");
+        }
+        @Override public byte[] contentsToByteArray() throws java.io.IOException {
+            if (directory) throw new java.io.IOException("Cannot read a Typeshed directory as a file: " + path);
+            return content.clone();
+        }
+        @Override public long getTimeStamp() { return 0L; }
+        @Override public long getLength() { return content.length; }
+        @Override public void refresh(boolean asynchronous, boolean recursive, Runnable postRunnable) {
+            if (postRunnable != null) postRunnable.run();
+        }
+        @Override public java.io.InputStream getInputStream() throws java.io.IOException {
+            if (directory) throw new java.io.IOException("Cannot open a Typeshed directory: " + path);
+            return new java.io.ByteArrayInputStream(content);
+        }
+    }
+
+    private static void installTypeshedMainSdk(
+            com.intellij.python.pyproject.model.evolution.EvoPyProjectModel model, Sdk sdk) throws Exception {
+        com.jetbrains.python.project.PyProject pyProject = new com.jetbrains.python.project.PyProject() {
+            @Override public java.nio.file.Path getBaseDir() { return java.nio.file.Path.of("/webrains-typeshed-project"); }
+            @Override public com.intellij.openapi.module.Module getResidesOnModule() { return null; }
+        };
+        var interpreter = new com.intellij.python.sdk.backend.PythonInterpreter(
+                sdk, com.jetbrains.python.Result.Companion.localizedError("Typeshed-only test interpreter"));
+        var pythonProject = new com.intellij.python.sdk.backend.evolution.EvoPyProject(pyProject, interpreter);
+        var workspace = new com.intellij.python.sdk.backend.evolution.EvoWorkspace(pythonProject, java.util.List.of());
+        var snapshot = model.new Snapshot(
+                java.util.List.of(workspace), pythonProject, java.util.Set.of(sdk.getName()));
+        var stateField = com.intellij.python.pyproject.model.evolution.EvoPyProjectModel.class.getDeclaredField("state");
+        stateField.setAccessible(true);
+        var state = (kotlinx.coroutines.flow.MutableStateFlow) stateField.get(model);
+        state.setValue(snapshot);
+        Sdk installedSdk = com.jetbrains.python.psi.resolve.MainPythonSdkKt.mainPythonSdk(modelProject(model));
+        System.out.println("TYPESHED-MAIN-SDK-INSTALLED=" + (installedSdk == null ? "null" : installedSdk.getName()));
+    }
+
+    private static com.intellij.openapi.project.Project modelProject(
+            com.intellij.python.pyproject.model.evolution.EvoPyProjectModel model) throws Exception {
+        var projectField = com.intellij.python.pyproject.model.evolution.EvoPyProjectModel.class.getDeclaredField("project");
+        projectField.setAccessible(true);
+        return (com.intellij.openapi.project.Project) projectField.get(model);
+    }
+
+    private static void registerInterfaceExtensionPoint(
+            com.intellij.openapi.extensions.ExtensionsArea area, String name, String interfaceName) {
+        try {
+            area.getExtensionPoint(name);
+        } catch (IllegalArgumentException missing) {
+            area.registerExtensionPoint(name, interfaceName, ExtensionPoint.Kind.INTERFACE, true);
+        }
+    }
+
+    private static Sdk createTypeshedSdk(SdkTypeId pythonSdkType) throws Exception {
+        ClassLoader loader = PythonInspectionProbe.class.getClassLoader();
+        String manifestName = "webrains/typeshed-stdlib.files";
+        try (var manifestStream = loader.getResourceAsStream(manifestName)) {
+            if (manifestStream == null) throw new IllegalStateException("Typeshed manifest is missing from the Web Image resources");
+            Path helpersRoot = java.nio.file.Files.createTempDirectory("webrains-python-helpers-");
+            for (String directory : java.util.List.of("generator3", "pycharm", "pydev", "typeshed/stdlib")) {
+                java.nio.file.Files.createDirectories(helpersRoot.resolve(directory));
+            }
+            java.nio.file.Files.createFile(helpersRoot.resolve("pycodestyle.py"));
+            java.nio.file.Files.createFile(helpersRoot.resolve("syspath.py"));
+            System.setProperty("idea.python.helpers.path", helpersRoot.toString());
+            var fileSystem = new TypeshedVirtualFileSystem();
+            var root = TypeshedVirtualFile.directory(fileSystem, null, "stdlib");
+            try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(manifestStream, java.nio.charset.StandardCharsets.UTF_8))) {
+                String resourceName;
+                int count = 0;
+                while ((resourceName = reader.readLine()) != null) {
+                    if (resourceName.isBlank()) continue;
+                    String prefix = "webrains/typeshed/stdlib/";
+                    if (!resourceName.startsWith(prefix)) throw new IllegalStateException("Unexpected Typeshed resource path: " + resourceName);
+                    String relative = resourceName.substring(prefix.length());
+                    String[] parts = relative.split("/");
+                    TypeshedVirtualFile directory = root;
+                    for (int index = 0; index < parts.length - 1; index++) directory = directory.ensureDirectory(parts[index]);
+                    try (var input = loader.getResourceAsStream(resourceName)) {
+                        if (input == null) throw new IllegalStateException("Missing Typeshed resource: " + resourceName);
+                        byte[] contents = input.readAllBytes();
+                        directory.addFile(parts[parts.length - 1], contents);
+                        Path helperFile = helpersRoot.resolve("typeshed/stdlib");
+                        for (String part : parts) helperFile = helperFile.resolve(part);
+                        java.nio.file.Files.createDirectories(helperFile.getParent());
+                        java.nio.file.Files.write(helperFile, contents);
+                    }
+                    count++;
+                }
+                if (count == 0) throw new IllegalStateException("Typeshed resource manifest is empty");
+                System.out.println("TYPESHED_VIRTUAL_FILES=" + count);
+            }
+            fileSystem.setRoot(root);
+            VirtualFile builtins = root.findFileByRelativePath("builtins.pyi");
+            if (builtins == null || builtins.isDirectory()) throw new IllegalStateException("Typeshed SDK root does not contain builtins.pyi");
+            System.out.println("TYPESHED_ROOT=" + root.getUrl() + " BUILTINS=" + builtins.getUrl());
+            return new TypeshedSdk(pythonSdkType, root);
         }
     }
 
@@ -126,7 +372,7 @@ public final class PythonInspectionProbe {
     }
 
     public static void main(String[] args) throws Exception {
-        String source = args.length == 0 ? "if Tru:\n    pass\n" : args[0];
+        String source = args.length == 0 ? "if Tru:\n    pass\nprint(\"hello\")\nlen([1, 2])\n" : args[0];
         // The standalone test has no IDE installation directory; production IDE launches set this property.
         System.setProperty("idea.home.path", "/");
         Thread entryThread = Thread.currentThread();
@@ -155,6 +401,17 @@ public final class PythonInspectionProbe {
                 new com.intellij.openapi.wm.ex.ProjectFrameCapabilitiesService());
 
         var extensionArea = application.getExtensionArea();
+        String sdkTypeExtensionPoint = SdkType.EP_NAME.getName();
+        try {
+            extensionArea.getExtensionPoint(sdkTypeExtensionPoint);
+        } catch (IllegalArgumentException missingSdkTypePoint) {
+            extensionArea.registerExtensionPoint(sdkTypeExtensionPoint, SdkType.class.getName(), ExtensionPoint.Kind.INTERFACE, true);
+        }
+        var pythonSdkTypeConstructor = com.jetbrains.python.sdk.PythonSdkType.class.getDeclaredConstructor();
+        pythonSdkTypeConstructor.setAccessible(true);
+        SdkType pythonSdkType = (SdkType) pythonSdkTypeConstructor.newInstance();
+        extensionArea.<SdkType>getExtensionPoint(sdkTypeExtensionPoint).registerExtension(pythonSdkType);
+        Sdk typeshedSdk = createTypeshedSdk(pythonSdkType);
         extensionArea.registerExtensionPoint("com.intellij.stubIndex",
                 "com.intellij.psi.stubs.StubIndexExtension", ExtensionPoint.Kind.INTERFACE, true);
         extensionArea.registerExtensionPoint("com.intellij.fileBasedIndex",
@@ -189,15 +446,41 @@ public final class PythonInspectionProbe {
         }
         extensionArea.registerExtensionPoint("Pythonid.pyReferenceResolveProvider",
                 "com.jetbrains.python.psi.resolve.PyReferenceResolveProvider", ExtensionPoint.Kind.INTERFACE, true);
-        // Declared by the original Python CE descriptor; the Java implementation is supplied
-        // by the optional Java plugin and is intentionally absent from this Python-only image.
-        extensionArea.registerExtensionPoint("Pythonid.importCandidateProvider",
-                com.jetbrains.python.codeInsight.imports.PyImportCandidateProvider.class.getName(),
-                ExtensionPoint.Kind.INTERFACE, true);
+        extensionArea.registerExtensionPoint("Pythonid.importResolver",
+                "com.jetbrains.python.psi.impl.PyImportResolver", ExtensionPoint.Kind.INTERFACE, true);
+        // Declared by the original helpersLocator module descriptor. The minimal CoreApplicationEnvironment
+        // does not load module plugin.xml files, so expose the real EP without installing its IDE-only
+        // default implementation (which depends on the scratch-file subsystem).
+        extensionArea.registerExtensionPoint("com.jetbrains.python.pythonHelpersLocator",
+                "com.intellij.python.community.helpersLocator.PythonHelpersLocator", ExtensionPoint.Kind.INTERFACE, true);
+        extensionArea.registerExtensionPoint("Pythonid.thirdPartySdkDetector",
+                "com.jetbrains.python.psi.resolve.PyThirdPartySdkDetector", ExtensionPoint.Kind.INTERFACE, true);
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.customPackageIdentifier", "com.jetbrains.python.psi.PyCustomPackageIdentifier");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pyModuleMembersProvider", "com.jetbrains.python.psi.types.PyModuleMembersProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.canonicalPathProvider", "com.jetbrains.python.psi.resolve.PyCanonicalPathProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.resolveResultRater", "com.jetbrains.python.psi.impl.PyResolveResultRater");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.typeProvider", "com.jetbrains.python.psi.impl.PyTypeProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pyClassMembersProvider", "com.jetbrains.python.psi.types.PyClassMembersProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.keywordArgumentProvider", "com.jetbrains.python.psi.impl.PyKeywordArgumentProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pyReferenceCustomTargetChecker", "com.jetbrains.python.psi.impl.references.PyReferenceCustomTargetChecker");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.typeCheckerExtension", "com.jetbrains.python.psi.types.PyTypeCheckerExtension");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.dictLiteralPromotionExtension", "com.jetbrains.python.psi.types.PyDictLiteralPromotionExtension");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pyEnumMemberDeclarationProvider", "com.jetbrains.python.psi.types.PyEnumMemberDeclarationProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pyDataclassParametersProvider", "com.jetbrains.python.codeInsight.PyDataclassParametersProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.importCandidateProvider", "com.jetbrains.python.codeInsight.imports.PyImportCandidateProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pyiStubSuppressor", "com.jetbrains.python.pyi.PyiStubSuppressor");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.knownDecoratorProvider", "com.jetbrains.python.psi.PyKnownDecoratorProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.typeHintProvider", "com.jetbrains.python.codeInsight.typing.PyTypeHintProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.typeEvalTypeEngineProvider", "com.jetbrains.python.psi.types.engine.PyTypeEngineProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pythonSdkFlavor", "com.jetbrains.python.sdk.flavors.PythonSdkFlavor");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pythonFlavorProvider", "com.jetbrains.python.sdk.flavors.PythonFlavorProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pySdkProvider", "com.jetbrains.python.sdk.PySdkProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.evoEnvironmentProvider", "com.intellij.python.sdk.backend.evolution.PyEvoEnvironmentProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.pythonEnvironmentProvider", "com.intellij.python.sdk.backend.PythonEnvironmentProvider");
+        registerInterfaceExtensionPoint(extensionArea, "Pythonid.targetSupportsFilter", "com.jetbrains.python.sdk.filter.TargetSupportsFilterExtension");
         extensionArea.registerExtensionPoint("Pythonid.inspectionExtension", "com.jetbrains.python.inspections.PyInspectionExtension", ExtensionPoint.Kind.INTERFACE, true);
         extensionArea.registerExtensionPoint("Pythonid.unresolvedReferenceQuickFixProvider",
                 "com.jetbrains.python.inspections.PyUnresolvedReferenceQuickFixProvider", ExtensionPoint.Kind.INTERFACE, true);
-        extensionArea.registerExtensionPoint("Pythonid.typeProvider", "com.jetbrains.python.psi.impl.PyTypeProvider", ExtensionPoint.Kind.INTERFACE, true);
         extensionArea.registerExtensionPoint(com.intellij.psi.codeStyle.FileIndentOptionsProvider.EP_NAME.getName(),
                 "com.intellij.psi.codeStyle.FileIndentOptionsProvider", ExtensionPoint.Kind.BEAN_CLASS, true);
         extensionArea.registerExtensionPoint(com.intellij.psi.codeStyle.FileTypeIndentOptionsProvider.EP_NAME.getName(),
@@ -333,7 +616,14 @@ public final class PythonInspectionProbe {
         // The real Python PSI reference implementation consults this application service even
         // for ordinary source files; CoreApplicationEnvironment does not load plugin services.
         application.registerService(com.jetbrains.python.PythonRuntimeService.class,
-                new com.jetbrains.python.PythonRuntimeServiceImpl());
+                new TypeshedPythonRuntimeService(new com.jetbrains.python.PythonRuntimeServiceImpl(), typeshedSdk));
+        application.registerService(com.jetbrains.python.PythonPluginDisposable.class,
+                new com.jetbrains.python.PythonPluginDisposable());
+        System.out.println("PYTHON-PLUGIN-DISPOSABLE-SERVICE="
+                + (application.getService(com.jetbrains.python.PythonPluginDisposable.class) != null));
+        System.out.println("GLOBAL-PYTHON-PLUGIN-DISPOSABLE-SERVICE="
+                + (com.intellij.openapi.application.ApplicationManager.getApplication()
+                        .getService(com.jetbrains.python.PythonPluginDisposable.class) != null));
         application.registerService(com.jetbrains.python.codeInsight.imports.PyImportCollectorFactory.class,
                 new com.jetbrains.python.codeInsight.imports.CodeStylePyImportCollectorFactory());
         application.registerService(com.jetbrains.python.codeInsight.PyCodeInsightSettings.class,
@@ -355,6 +645,8 @@ public final class PythonInspectionProbe {
             }
         };
         MockProject project = projectEnvironment.getProject();
+        project.registerService(com.jetbrains.python.PythonPluginDisposable.class,
+                new com.jetbrains.python.PythonPluginDisposable());
         // Expose the project through its interface key for Pico constructor injection,
         // as the full IDE component container does.
         if (project.getPicoContainer().getComponentAdapter(com.intellij.openapi.project.Project.class.getName()) == null) {
@@ -428,6 +720,7 @@ public final class PythonInspectionProbe {
         project.registerService(com.intellij.python.pyproject.model.evolution.EvoPyProjectModel.class,
                 evoPyProjectModel);
         evoDispatcher.activateQueuedTasks();
+        installTypeshedMainSdk(evoPyProjectModel, typeshedSdk);
         // This @Service(PROJECT) is not bootstrapped by CoreProjectEnvironment. Its original
         // implementation is safe to construct here; non-welcome-screen projects skip tracking.
         project.registerService(com.intellij.python.externalIndex.PyExternalFilesIndexService.class,
@@ -460,6 +753,18 @@ public final class PythonInspectionProbe {
             return;
         }
         if (file == null) throw new IllegalStateException("Python PSI was not created for the virtual test file");
+        System.out.println("TYPESHED-SDK-TYPE=" + typeshedSdk.getSdkType().getName());
+        System.out.println("TYPESHED-ROOT-COUNT=" + typeshedSdk.getRootProvider().getFiles(OrderRootType.CLASSES).length);
+        System.out.println("TYPESHED-ROOT-BUILTINS=" + typeshedSdk.getRootProvider().getFiles(OrderRootType.CLASSES)[0].findFileByRelativePath("builtins.pyi"));
+        Sdk mainSdk = com.jetbrains.python.psi.resolve.MainPythonSdkKt.mainPythonSdk(project);
+        Sdk fileSdk = com.jetbrains.python.psi.impl.PyBuiltinCache.findSdkForFile(file);
+        System.out.println("TYPESHED-MAIN-SDK-NAME=" + (mainSdk == null ? "null" : mainSdk.getName()));
+        System.out.println("TYPESHED-FILE-SDK-NAME=" + (fileSdk == null ? "null" : fileSdk.getName()));
+        var typeshedImportContext = com.jetbrains.python.psi.resolve.PyResolveImportUtil.fromSdk(project, typeshedSdk);
+        var typeshedBuiltinsCandidates = com.jetbrains.python.psi.resolve.PyResolveImportUtil.resolveQualifiedName(
+                com.intellij.psi.util.QualifiedName.fromDottedString("builtins"), typeshedImportContext);
+        System.out.println("TYPESHED-BUILTINS-CANDIDATES=" + typeshedBuiltinsCandidates);
+        System.out.println("TYPESHED-BUILTINS-FILE=" + com.jetbrains.python.psi.impl.PyBuiltinCache.getBuiltinsForSdk(project, typeshedSdk));
         for (var child : file.getChildren()) System.out.println("DEBUG_PSI_CHILD=" + child.getClass().getName() + " text=" + child.getText());
         InspectionManager manager = InspectionManager.getInstance(project);
         ProblemsHolder holder = new ProblemsHolder(manager, file, true);
