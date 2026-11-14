@@ -69,15 +69,6 @@ export function LandingPage() {
     }
   }, [refresh])
 
-  // Next-day load: an expired token can often be restored silently without showing the
-  // sign-in button first (the Google session cookie normally survives browser restarts).
-  useEffect(() => {
-    if (isDriveConnected()) return
-    void (async () => {
-      if (await tryRestoreDriveSession()) setConnected(true)
-    })()
-  }, [])
-
   const createProject = async () => {
     setBusy(true)
     setError('')
@@ -129,12 +120,17 @@ export function LandingPage() {
     } finally { setBusy(false) }
   }
 
+  // The silent session restore must run inside a user gesture: a token request fired
+  // at page load can leave a stray Google popup flow that later steals the callback
+  // from the interactive sign-in, leaving the UI signed out even though the token was
+  // stored. On the button press we first try the silent renewal (no popup when the
+  // Google session cookie is alive) and only fall back to the interactive flow.
   const authorize = async () => {
     setBusy(true)
     setLoading(true)
     setError('')
     try {
-      await connectDrive()
+      if (!await tryRestoreDriveSession()) await connectDrive()
       if (connected) await refresh()
       else setConnected(true)
     } catch (cause) {
