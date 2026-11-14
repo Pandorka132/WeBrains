@@ -25,7 +25,7 @@
       "sqlite"
     ]
   },
-  "reflectionConfig": "experiments/python-plugin/artifacts/.tools/graalvm-webimage-varhandle-probe/reflection-config.json",
+  "reflectionConfig": "experiments/plugin-build/profiles/python-ce-lexer-parser-reflection.json",
   "imageOptions": [
     "-H:+UnlockExperimentalVMOptions",
     "-H:Backend=WASMGC",

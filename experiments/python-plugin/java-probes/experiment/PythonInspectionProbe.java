@@ -252,13 +252,22 @@ public final class PythonInspectionProbe {
         String manifestName = "webrains/typeshed-stdlib.files";
         try (var manifestStream = loader.getResourceAsStream(manifestName)) {
             if (manifestStream == null) throw new IllegalStateException("Typeshed manifest is missing from the Web Image resources");
-            Path helpersRoot = java.nio.file.Files.createTempDirectory("webrains-python-helpers-");
+            String configuredHelpersRoot = System.getProperty("idea.python.helpers.path");
+            Path helpersRoot;
+            if (configuredHelpersRoot == null || configuredHelpersRoot.isBlank()) {
+                helpersRoot = java.nio.file.Files.createTempDirectory("webrains-python-helpers-");
+                System.setProperty("idea.python.helpers.path", helpersRoot.toString());
+            } else {
+                helpersRoot = Path.of(configuredHelpersRoot);
+                java.nio.file.Files.createDirectories(helpersRoot);
+            }
             for (String directory : java.util.List.of("generator3", "pycharm", "pydev", "typeshed/stdlib")) {
                 java.nio.file.Files.createDirectories(helpersRoot.resolve(directory));
             }
-            java.nio.file.Files.createFile(helpersRoot.resolve("pycodestyle.py"));
-            java.nio.file.Files.createFile(helpersRoot.resolve("syspath.py"));
-            System.setProperty("idea.python.helpers.path", helpersRoot.toString());
+            for (String helperFile : java.util.List.of("pycodestyle.py", "syspath.py")) {
+                Path path = helpersRoot.resolve(helperFile);
+                if (!java.nio.file.Files.exists(path)) java.nio.file.Files.createFile(path);
+            }
             var fileSystem = new TypeshedVirtualFileSystem();
             var root = TypeshedVirtualFile.directory(fileSystem, null, "stdlib");
             try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(manifestStream, java.nio.charset.StandardCharsets.UTF_8))) {
@@ -451,8 +460,13 @@ public final class PythonInspectionProbe {
         // Declared by the original helpersLocator module descriptor. The minimal CoreApplicationEnvironment
         // does not load module plugin.xml files, so expose the real EP without installing its IDE-only
         // default implementation (which depends on the scratch-file subsystem).
+        // The minimal CoreApplicationEnvironment does not load module plugin.xml files.
+        // Register the exact default locator declared by intellij.python.community.helpersLocator.xml.
         extensionArea.registerExtensionPoint("com.jetbrains.python.pythonHelpersLocator",
                 "com.intellij.python.community.helpersLocator.PythonHelpersLocator", ExtensionPoint.Kind.INTERFACE, true);
+        extensionArea.<com.intellij.python.community.helpersLocator.PythonHelpersLocator>getExtensionPoint(
+                "com.jetbrains.python.pythonHelpersLocator").registerExtension(
+                new com.intellij.python.community.helpersLocator.PythonHelpersLocatorDefault());
         extensionArea.registerExtensionPoint("Pythonid.thirdPartySdkDetector",
                 "com.jetbrains.python.psi.resolve.PyThirdPartySdkDetector", ExtensionPoint.Kind.INTERFACE, true);
         registerInterfaceExtensionPoint(extensionArea, "Pythonid.customPackageIdentifier", "com.jetbrains.python.psi.PyCustomPackageIdentifier");
@@ -764,6 +778,12 @@ public final class PythonInspectionProbe {
         var typeshedBuiltinsCandidates = com.jetbrains.python.psi.resolve.PyResolveImportUtil.resolveQualifiedName(
                 com.intellij.psi.util.QualifiedName.fromDottedString("builtins"), typeshedImportContext);
         System.out.println("TYPESHED-BUILTINS-CANDIDATES=" + typeshedBuiltinsCandidates);
+        var printCandidates = com.jetbrains.python.psi.resolve.PyResolveImportUtil.resolveQualifiedName(
+                com.intellij.psi.util.QualifiedName.fromDottedString("builtins.print"), typeshedImportContext);
+        var lenCandidates = com.jetbrains.python.psi.resolve.PyResolveImportUtil.resolveQualifiedName(
+                com.intellij.psi.util.QualifiedName.fromDottedString("builtins.len"), typeshedImportContext);
+        System.out.println("TYPESHED-PRINT-CANDIDATES=" + printCandidates);
+        System.out.println("TYPESHED-LEN-CANDIDATES=" + lenCandidates);
         System.out.println("TYPESHED-BUILTINS-FILE=" + com.jetbrains.python.psi.impl.PyBuiltinCache.getBuiltinsForSdk(project, typeshedSdk));
         for (var child : file.getChildren()) System.out.println("DEBUG_PSI_CHILD=" + child.getClass().getName() + " text=" + child.getText());
         InspectionManager manager = InspectionManager.getInstance(project);
