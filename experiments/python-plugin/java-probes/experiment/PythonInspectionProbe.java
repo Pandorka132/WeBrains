@@ -455,6 +455,11 @@ public final class PythonInspectionProbe {
         }
         extensionArea.registerExtensionPoint("Pythonid.pyReferenceResolveProvider",
                 "com.jetbrains.python.psi.resolve.PyReferenceResolveProvider", ExtensionPoint.Kind.INTERFACE, true);
+        // CoreApplicationEnvironment does not load the Python module's declared provider extensions.
+        // The original Python builtin resolver is required for names such as print() and len().
+        extensionArea.<com.jetbrains.python.psi.resolve.PyReferenceResolveProvider>getExtensionPoint(
+                "Pythonid.pyReferenceResolveProvider").registerExtension(
+                new com.jetbrains.python.psi.resolve.PythonBuiltinReferenceResolveProvider());
         extensionArea.registerExtensionPoint("Pythonid.importResolver",
                 "com.jetbrains.python.psi.impl.PyImportResolver", ExtensionPoint.Kind.INTERFACE, true);
         // Declared by the original helpersLocator module descriptor. The minimal CoreApplicationEnvironment
@@ -512,6 +517,12 @@ public final class PythonInspectionProbe {
         extensionArea.registerExtensionPoint(com.intellij.psi.codeStyle.modifier.CodeStyleSettingsModifier.EP_NAME.getName(),
                 "com.intellij.psi.codeStyle.modifier.CodeStyleSettingsModifier", ExtensionPoint.Kind.INTERFACE, true);
 
+        extensionArea.registerExtensionPoint("com.intellij.advancedSetting",
+                com.intellij.openapi.options.advanced.AdvancedSettingBean.class.getName(),
+                ExtensionPoint.Kind.BEAN_CLASS, true);
+        extensionArea.registerExtensionPoint("com.intellij.advancedSettingDefault",
+                com.intellij.openapi.options.advanced.AdvancedSettingDefaultBean.class.getName(),
+                ExtensionPoint.Kind.BEAN_CLASS, true);
         Path platformIndexPlugin = Path.of("/tmp/webrains-platform-index-plugin");
         Path pythonIndexPlugin = Path.of("/tmp/webrains-python-index-plugin");
         writePluginDescriptor(platformIndexPlugin, PLATFORM_INDEX_PLUGIN_XML);
@@ -543,6 +554,8 @@ public final class PythonInspectionProbe {
         var probeCoroutineScope = kotlinx.coroutines.CoroutineScopeKt.CoroutineScope(kotlin.coroutines.EmptyCoroutineContext.INSTANCE);
         application.registerService(kotlinx.coroutines.CoroutineScope.class, probeCoroutineScope);
 
+        application.registerService(com.intellij.util.ForcefulReparseModificationTracker.class,
+                new com.intellij.util.ForcefulReparseModificationTracker());
         application.registerService(com.intellij.openapi.vfs.LocalFileSystem.class,
                 com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl.class);
         application.registerService(com.intellij.openapi.vfs.newvfs.ManagingFS.class,
@@ -609,6 +622,13 @@ public final class PythonInspectionProbe {
         application.registerService((Class) languageCodeStyleServiceClass, languageCodeStyleService);
         application.registerService(com.intellij.openapi.application.CoroutineSupport.class,
                 new com.intellij.openapi.application.impl.PlatformCoroutineSupport());
+        var strictUnionsSetting = new com.intellij.openapi.options.advanced.AdvancedSettingBean();
+        strictUnionsSetting.id = "python.typing.strict.unions";
+        strictUnionsSetting.defaultValue = "true";
+        extensionArea.<com.intellij.openapi.options.advanced.AdvancedSettingBean>getExtensionPoint(
+                "com.intellij.advancedSetting").registerExtension(strictUnionsSetting);
+        application.registerService(com.intellij.openapi.options.advanced.AdvancedSettings.class,
+                new com.intellij.openapi.options.advanced.AdvancedSettingsImpl());
         var pathMacros = new com.intellij.application.options.PathMacrosImpl(false);
         pathMacros.setMacro("ROOT_CONFIG", System.getProperty("idea.config.path", "/tmp/webrains-idea-config"));
         application.registerService(com.intellij.openapi.application.PathMacros.class, pathMacros);
@@ -714,6 +734,14 @@ public final class PythonInspectionProbe {
                 new com.intellij.workspaceModel.ide.impl.jps.serialization.JpsGlobalModelSynchronizerImpl(probeCoroutineScope));
         var workspaceModel = new com.intellij.workspaceModel.ide.impl.WorkspaceModelImpl(project, probeCoroutineScope);
         project.registerService(com.intellij.platform.backend.workspace.WorkspaceModel.class, workspaceModel);
+        // The platform declares this as a project service alongside WorkspaceModel. The
+        // unresolved-import inspection's source-root quick fix reaches it through projectScope.
+        project.registerService(com.intellij.platform.backend.workspace.WorkspaceModelCache.class,
+                new com.intellij.workspaceModel.ide.impl.WorkspaceModelCacheImpl(project, probeCoroutineScope));
+        // The original unresolved-reference quick-fix implementation requests this project
+        // service when it evaluates source-root suggestions for import references.
+        project.registerService(com.jetbrains.python.module.PySourceRootDetectionService.class,
+                new com.jetbrains.python.module.PySourceRootDetectionService(project, probeCoroutineScope));
         // Register the original project services before ModuleManager starts workspace-model
         // listeners: those listeners can request Python's project model asynchronously.
         project.registerService(com.intellij.workspaceModel.ide.ProjectSynchronizerUtil.class,
@@ -725,6 +753,8 @@ public final class PythonInspectionProbe {
         project.registerService(com.jetbrains.python.psi.types.TypeEvalContextCache.class, typeEvalCache);
         project.registerService(com.jetbrains.python.psi.types.PyTypeEngineSettingsModificationTracker.class,
                 new com.jetbrains.python.psi.types.PyTypeEngineSettingsModificationTracker());
+        project.registerService(com.jetbrains.python.psi.types.PyLibraryModificationTracker.class,
+                new com.jetbrains.python.psi.types.PyLibraryModificationTracker(project));
         // The original service launches coroutines from its constructor. Defer those tasks
         // until the service instance is registered, then execute them on the WASM main thread.
         var evoDispatcher = new QueuedCurrentThreadDispatcher();
@@ -778,13 +808,8 @@ public final class PythonInspectionProbe {
         var typeshedBuiltinsCandidates = com.jetbrains.python.psi.resolve.PyResolveImportUtil.resolveQualifiedName(
                 com.intellij.psi.util.QualifiedName.fromDottedString("builtins"), typeshedImportContext);
         System.out.println("TYPESHED-BUILTINS-CANDIDATES=" + typeshedBuiltinsCandidates);
-        var printCandidates = com.jetbrains.python.psi.resolve.PyResolveImportUtil.resolveQualifiedName(
-                com.intellij.psi.util.QualifiedName.fromDottedString("builtins.print"), typeshedImportContext);
-        var lenCandidates = com.jetbrains.python.psi.resolve.PyResolveImportUtil.resolveQualifiedName(
-                com.intellij.psi.util.QualifiedName.fromDottedString("builtins.len"), typeshedImportContext);
-        System.out.println("TYPESHED-PRINT-CANDIDATES=" + printCandidates);
-        System.out.println("TYPESHED-LEN-CANDIDATES=" + lenCandidates);
-        System.out.println("TYPESHED-BUILTINS-FILE=" + com.jetbrains.python.psi.impl.PyBuiltinCache.getBuiltinsForSdk(project, typeshedSdk));
+        var builtinsFile = com.jetbrains.python.psi.impl.PyBuiltinCache.getBuiltinsForSdk(project, typeshedSdk);
+        System.out.println("TYPESHED-BUILTINS-FILE=" + builtinsFile);
         for (var child : file.getChildren()) System.out.println("DEBUG_PSI_CHILD=" + child.getClass().getName() + " text=" + child.getText());
         InspectionManager manager = InspectionManager.getInstance(project);
         ProblemsHolder holder = new ProblemsHolder(manager, file, true);
