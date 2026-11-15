@@ -18,7 +18,7 @@ type BrowserFsApi = {
 declare global { interface Window { google?: GoogleGlobal } }
 
 type GoogleTokenClient = { requestAccessToken(options?: { prompt?: string }): void }
-type GoogleGlobal = { accounts?: { oauth2: { initTokenClient(options: { client_id: string; scope: string; callback(response: { access_token?: string; expires_in?: number; error?: string }): void }): GoogleTokenClient } } }
+type GoogleGlobal = { accounts?: { oauth2: { initTokenClient(options: { client_id: string; scope: string; callback(response: { access_token?: string; expires_in?: number; error?: string }): void; error_callback?(response: { type?: string; message?: string }): void }): GoogleTokenClient } } }
 type StoredDriveToken = { accessToken: string; expiresAt: number; clientId?: string }
 const tokenKey = 'webrains.drive.oauth'
 // Google access tokens from the implicit flow live for about one hour and browsers
@@ -285,6 +285,10 @@ export function renewDriveTokenSilently(): Promise<StoredDriveToken | undefined>
             if (!response.access_token) { resolve(undefined); return }
             resolve(storeToken(clientId, response.access_token, response.expires_in ?? 3600))
           },
+          error_callback: (response) => {
+            console.warn('[WeBrains] silent Drive token renewal interrupted:', response.type, response.message)
+            resolve(undefined)
+          },
         })
         client.requestAccessToken({ prompt: '' })
         // Safety net: Google answers token requests, but never wait forever for it.
@@ -358,6 +362,12 @@ export async function connectDrive(clientId = getConfiguredGoogleClientId()): Pr
         } catch {
           reject(new Error('Browser storage is unavailable, so the Google Drive session could not be saved.'))
         }
+      },
+      // Without this Google swallows popup-level failures (blocked popup, closed
+      // popup, abandoned flow) completely silently — the promise would never settle.
+      error_callback: (response) => {
+        console.warn('[WeBrains] Google sign-in popup error:', response.type, response.message)
+        reject(new Error(`Google sign-in was interrupted (${response.type ?? 'unknown'}). Close the Google window and try again.`))
       },
     })
     client.requestAccessToken()

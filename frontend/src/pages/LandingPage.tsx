@@ -10,7 +10,6 @@ import {
   listDriveProjects,
   listLocalProjects,
   migrateLocalProjectToDrive,
-  tryRestoreDriveSession,
   type ProjectSummary,
 } from '../platform/web-runtime/providers.ts'
 import { appUrl, navigateApp } from '../utils/routing.ts'
@@ -120,17 +119,12 @@ export function LandingPage() {
     } finally { setBusy(false) }
   }
 
-  // The silent session restore must run inside a user gesture: a token request fired
-  // at page load can leave a stray Google popup flow that later steals the callback
-  // from the interactive sign-in, leaving the UI signed out even though the token was
-  // stored. On the button press we first try the silent renewal (no popup when the
-  // Google session cookie is alive) and only fall back to the interactive flow.
   const authorize = async () => {
     setBusy(true)
     setLoading(true)
     setError('')
     try {
-      if (!await tryRestoreDriveSession()) await connectDrive()
+      await connectDrive()
       if (connected) await refresh()
       else setConnected(true)
     } catch (cause) {
